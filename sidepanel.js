@@ -5,10 +5,11 @@ class SpiritAIPanel {
     this.messages = [];
     this.isLoading = false;
     this.loadingProgressTimeout = null;
+    this.tabId = null;
     this.init();
   }
 
-  init() {
+  async init() {
     this.messageInput = document.getElementById('messageInput');
     this.sendButton = document.getElementById('sendButton');
     this.messagesContainer = document.getElementById('messagesContainer');
@@ -17,6 +18,10 @@ class SpiritAIPanel {
     this.errorBanner = document.getElementById('errorBanner');
     this.errorMessage = document.getElementById('errorMessage');
     this.errorClose = document.getElementById('errorClose');
+
+    // Capture the tab this panel belongs to
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    this.tabId = tab?.id ?? null;
 
     this.setupEventListeners();
     this.setupMessageListener();
@@ -50,11 +55,10 @@ class SpiritAIPanel {
 
   setupMessageListener() {
     // Listen for responses from service worker
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((message) => {
       if (message.type === 'SPIRIT_RESPONSE') {
         this.handleSpiritResponse(message);
       }
-      return true;
     });
   }
 
@@ -85,7 +89,8 @@ class SpiritAIPanel {
       // Send message to service worker
       chrome.runtime.sendMessage({
         type: 'ASK_SPIRIT',
-        question: question
+        question: question,
+        tabId: this.tabId
       });
     } catch (error) {
       this.setLoading(false);

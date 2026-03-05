@@ -12,18 +12,38 @@ const CONFIG = {
 /**
  * Opens the side panel when the extension icon is clicked
  */
-chrome.action.onClicked.addListener((tab) => {
-  chrome.sidePanel.open({ windowId: tab.windowId });
+chrome.action.onClicked.addListener(async (tab) => {
+  // Enable and open the panel locked to this specific tab only.
+  // Must NOT await setOptions — open() must be called synchronously within the user gesture.
+  chrome.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true });
+  chrome.sidePanel.open({ tabId: tab.id });
+
+  // Add the tab to a Spirit.AI tab group for visual clarity
+  try {
+    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: 'Spirit.AI' });
+    if (groups.length > 0) {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId: groups[0].id });
+    } else {
+      const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+      await chrome.tabGroups.update(groupId, { title: 'Spirit.AI', color: 'purple' });
+    }
+  } catch (e) {
+    console.warn('Spirit.AI: Tab grouping failed:', e);
+  }
+
+  // Capture page context now, keyed by tab ID
+  const contextResult = await getPageContext(tab.id);
+  if (!contextResult.error) {
+    await chrome.storage.session.set({ [`ctx_${tab.id}`]: contextResult.context });
+  }
 });
 
 /**
  * Sets the side panel as the default action
  */
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setOptions({
-    path: 'sidepanel.html',
-    enabled: true
-  });
+  // Disable the panel globally — it is enabled per-tab when the icon is clicked
+  chrome.sidePanel.setOptions({ enabled: false });
 });
 
 /**
@@ -211,30 +231,35 @@ User Question: ${question}`;
  * @param {chrome.runtime.MessageSender} sender - Message sender
  * @param {Function} sendResponse - Response callback
  */
-async function handleAskSpirit(message, sender, sendResponse) {
+async function handleAskSpirit(message) {
   try {
-    // Get active tab
-    const tab = await getActiveTab();
-    if (!tab || !tab.id) {
+    const tabId = message.tabId;
+    if (!tabId) {
       chrome.runtime.sendMessage({
         type: 'SPIRIT_RESPONSE',
-        error: 'No active tab found. Please navigate to a webpage and try again.'
+        error: 'No tab ID provided. Please close and reopen the panel.'
       });
       return;
     }
 
-    // Get page context
-    const contextResult = await getPageContext(tab.id);
-    if (contextResult.error) {
-      chrome.runtime.sendMessage({
-        type: 'SPIRIT_RESPONSE',
-        error: contextResult.message || 'Failed to extract page context.'
-      });
-      return;
+    // Use context captured when this tab's panel opened
+    const stored = await chrome.storage.session.get(`ctx_${tabId}`);
+    let pageContext = stored[`ctx_${tabId}`];
+    if (!pageContext) {
+      // Service worker may have restarted — re-fetch from the same tab
+      const contextResult = await getPageContext(tabId);
+      if (contextResult.error) {
+        chrome.runtime.sendMessage({
+          type: 'SPIRIT_RESPONSE',
+          error: contextResult.message || 'Failed to extract page context.'
+        });
+        return;
+      }
+      pageContext = contextResult.context;
     }
 
     // Call AI provider
-    const aiResponse = await askSpiritAI(message.question, contextResult.context);
+    const aiResponse = await askSpiritAI(message.question, pageContext);
     
     chrome.runtime.sendMessage({
       type: 'SPIRIT_RESPONSE',
@@ -260,10 +285,9 @@ async function handleAskSpirit(message, sender, sendResponse) {
 }
 
 // Listen for messages from side panel
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'ASK_SPIRIT') {
-    handleAskSpirit(message, sender, sendResponse);
-    return true; // Keep channel open for async response
+    handleAskSpirit(message);
   }
 });
 

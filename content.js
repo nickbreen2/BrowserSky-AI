@@ -82,7 +82,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
       // Check if page is restricted (chrome://, chrome-extension://, etc.)
       const url = window.location.href;
-      if (url.startsWith('chrome://') || 
+      if (url.startsWith('chrome://') ||
           url.startsWith('chrome-extension://') ||
           url.startsWith('edge://') ||
           url.startsWith('moz-extension://')) {
@@ -90,9 +90,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           error: 'RESTRICTED_PAGE',
           message: 'I can\'t read this page due to browser restrictions. Try a different webpage.'
         });
-        return true;
+        return;
       }
-      
+
       // Check if context is valid
       if (!isValidContext(context)) {
         sendResponse({
@@ -100,9 +100,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           message: 'This page does not contain enough readable text for me to answer reliably. Try selecting text or open an article view.',
           context: context
         });
-        return true;
+        return;
       }
-      
+
       sendResponse({ context });
     } catch (error) {
       console.error('Spirit.AI: Error getting page context:', error);
@@ -111,7 +111,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         message: 'Failed to extract page context. Please try again.'
       });
     }
-    return true; // Keep channel open for async response
   }
 });
 
