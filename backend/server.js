@@ -26,7 +26,7 @@ app.use(cors({
   origin: '*', // In production, restrict to extension origin
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // System prompt for Spirit.AI
 const SYSTEM_PROMPT = `You are Spirit.AI, a browser-based assistant.
@@ -172,6 +172,84 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Generic error
+    res.status(500).json({
+      error: error.message || 'An unexpected error occurred while processing your request.'
+    });
+  }
+});
+
+/**
+ * POST /api/chat/vision
+ * Handles vision requests — sends a screenshot to GPT-4o instead of text
+ */
+app.post('/api/chat/vision', async (req, res) => {
+  console.log('=== Incoming vision request ===');
+  console.log('Question:', req.body.question);
+  console.log('Has screenshot:', !!req.body.screenshot);
+  console.log('==============================');
+
+  try {
+    const { question, screenshot, pageInfo, model } = req.body;
+
+    if (!question || !screenshot) {
+      return res.status(400).json({
+        error: 'Missing required fields: question and screenshot are required'
+      });
+    }
+
+    const modelToUse = model || process.env.DEFAULT_MODEL || 'gpt-4o';
+    const url = pageInfo?.url || 'unknown';
+    const title = pageInfo?.title || 'unknown';
+
+    const systemPrompt = `You are Spirit.AI, a browser-based assistant.
+You are given a screenshot of a webpage. Answer the user's question based on what you can see in the screenshot.
+If the screenshot does not contain the answer, say so explicitly.
+Be concise and accurate. Do not invent details.`;
+
+    const response = await openai.chat.completions.create({
+      model: modelToUse,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Page Title: ${title}\nPage URL: ${url}\n\nUser Question: ${question}`
+            },
+            {
+              type: 'image_url',
+              image_url: { url: screenshot, detail: 'high' }
+            }
+          ]
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
+    });
+
+    const answer = response.choices[0]?.message?.content || 'I apologize, but I couldn\'t generate a response.';
+    console.log('✅ Vision response sent');
+
+    res.json({
+      answer,
+      usage: {
+        prompt_tokens: response.usage?.prompt_tokens || 0,
+        completion_tokens: response.usage?.completion_tokens || 0,
+        total_tokens: response.usage?.total_tokens || 0
+      },
+      model: modelToUse
+    });
+  } catch (error) {
+    console.error('Error processing vision request:', error);
+
+    if (error.status === 401 || error.status === 403) {
+      return res.status(401).json({ error: 'Invalid API key.' });
+    }
+    if (error.status === 429) {
+      return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+    }
+
     res.status(500).json({
       error: error.message || 'An unexpected error occurred while processing your request.'
     });

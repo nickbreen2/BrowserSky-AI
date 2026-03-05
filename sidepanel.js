@@ -26,6 +26,15 @@ class SpiritAIPanel {
     this.setupEventListeners();
     this.setupMessageListener();
     this.updateSendButtonState();
+
+    // Restore this tab's conversation history from the service worker
+    if (this.tabId !== null) {
+      const { conversation } = await chrome.runtime.sendMessage({
+        type: 'GET_CONVERSATION',
+        tabId: this.tabId
+      });
+      this.loadConversation(conversation);
+    }
   }
 
   setupEventListeners() {
@@ -54,9 +63,9 @@ class SpiritAIPanel {
   }
 
   setupMessageListener() {
-    // Listen for responses from service worker
+    // Listen for responses from service worker — only handle messages for this tab
     chrome.runtime.onMessage.addListener((message) => {
-      if (message.type === 'SPIRIT_RESPONSE') {
+      if (message.type === 'SPIRIT_RESPONSE' && message.tabId === this.tabId) {
         this.handleSpiritResponse(message);
       }
     });
@@ -109,12 +118,15 @@ class SpiritAIPanel {
     }
   }
 
-  addMessage(role, content) {
-    const message = {
-      role,
-      content,
-      timestamp: new Date()
-    };
+  loadConversation(conversation) {
+    if (!conversation || conversation.length === 0) return;
+    for (const msg of conversation) {
+      this.addMessage(msg.role, msg.content, new Date(msg.timestamp));
+    }
+  }
+
+  addMessage(role, content, timestamp = new Date()) {
+    const message = { role, content, timestamp };
     this.messages.push(message);
 
     // Remove welcome message if present
