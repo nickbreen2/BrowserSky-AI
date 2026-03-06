@@ -5,10 +5,11 @@ class SpiritAIPanel {
     this.messages = [];
     this.isLoading = false;
     this.loadingProgressTimeout = null;
+    this.tabId = null;
     this.init();
   }
 
-  init() {
+  async init() {
     this.messageInput = document.getElementById('messageInput');
     this.sendButton = document.getElementById('sendButton');
     this.messagesContainer = document.getElementById('messagesContainer');
@@ -18,9 +19,22 @@ class SpiritAIPanel {
     this.errorMessage = document.getElementById('errorMessage');
     this.errorClose = document.getElementById('errorClose');
 
+    // Capture the tab this panel belongs to
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    this.tabId = tab?.id ?? null;
+
     this.setupEventListeners();
     this.setupMessageListener();
     this.updateSendButtonState();
+
+    // Restore this tab's conversation history from the service worker
+    if (this.tabId !== null) {
+      const { conversation } = await chrome.runtime.sendMessage({
+        type: 'GET_CONVERSATION',
+        tabId: this.tabId
+      });
+      this.loadConversation(conversation);
+    }
   }
 
   setupEventListeners() {
@@ -49,12 +63,11 @@ class SpiritAIPanel {
   }
 
   setupMessageListener() {
-    // Listen for responses from service worker
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      if (message.type === 'SPIRIT_RESPONSE') {
+    // Listen for responses from service worker — only handle messages for this tab
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'SPIRIT_RESPONSE' && message.tabId === this.tabId) {
         this.handleSpiritResponse(message);
       }
-      return true;
     });
   }
 
@@ -85,7 +98,8 @@ class SpiritAIPanel {
       // Send message to service worker
       chrome.runtime.sendMessage({
         type: 'ASK_SPIRIT',
-        question: question
+        question: question,
+        tabId: this.tabId
       });
     } catch (error) {
       this.setLoading(false);
@@ -104,12 +118,15 @@ class SpiritAIPanel {
     }
   }
 
-  addMessage(role, content) {
-    const message = {
-      role,
-      content,
-      timestamp: new Date()
-    };
+  loadConversation(conversation) {
+    if (!conversation || conversation.length === 0) return;
+    for (const msg of conversation) {
+      this.addMessage(msg.role, msg.content, new Date(msg.timestamp));
+    }
+  }
+
+  addMessage(role, content, timestamp = new Date()) {
+    const message = { role, content, timestamp };
     this.messages.push(message);
 
     // Remove welcome message if present
