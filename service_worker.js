@@ -7,6 +7,7 @@ const conversations = {};
 const CONFIG = {
   backendEndpoint: 'http://localhost:3001/api/chat',
   visionEndpoint: 'http://localhost:3001/api/chat/vision',
+  classifyEndpoint: 'http://localhost:3001/api/classify',
   defaultModel: 'gpt-4o',
   fallbackModel: 'gpt-4o-mini',
   requestTimeout: 30000, // 30 seconds
@@ -35,6 +36,9 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch (e) {
     console.warn('Spirit.AI: Tab grouping failed:', e);
   }
+
+  // Show scan border on the page to signal Spirit.AI is active
+  chrome.tabs.sendMessage(tab.id, { type: 'SPIRIT_SCANNING' }).catch(() => {});
 
   // Capture page context now, keyed by tab ID
   const contextResult = await getPageContext(tab.id);
@@ -244,6 +248,7 @@ async function askSpiritAIWithVision(question, screenshotDataUrl, url, title) {
     const data = await response.json();
     return {
       answer: data.answer || 'I apologize, but I couldn\'t generate a response.',
+      highlights: Array.isArray(data.highlights) ? data.highlights : [],
       usage: data.usage,
       model: data.model || CONFIG.defaultModel
     };
@@ -259,12 +264,41 @@ async function askSpiritAIWithVision(question, screenshotDataUrl, url, title) {
 }
 
 /**
+ * Classifies whether a question needs a multi-step plan or a direct answer
+ * @param {string} question - User's question
+ * @param {Object} pageContext - Page context {title, url, text}
+ * @returns {Promise<Object>} Classification {type: "plan"|"direct", steps?: string[]}
+ */
+async function classifyQuestion(question, pageContext) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // Short timeout for classification
+
+    const response = await fetch(CONFIG.classifyEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, pageContext }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return { type: 'direct' };
+
+    const data = await response.json();
+    return data;
+  } catch {
+    return { type: 'direct' };
+  }
+}
+
+/**
  * Calls the AI provider via backend proxy
  * @param {string} question - User's question
  * @param {Object} pageContext - Page context {title, url, text}
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askSpiritAI(question, pageContext) {
+async function askSpiritAI(question, pageContext, model) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
@@ -277,7 +311,7 @@ async function askSpiritAI(question, pageContext) {
       body: JSON.stringify({
         question,
         pageContext,
-        model: CONFIG.defaultModel
+        model: model || CONFIG.defaultModel
       }),
       signal: controller.signal
     });
@@ -290,9 +324,10 @@ async function askSpiritAI(question, pageContext) {
     }
 
     const data = await response.json();
-    
+
     return {
       answer: data.answer || 'I apologize, but I couldn\'t generate a response.',
+      highlights: Array.isArray(data.highlights) ? data.highlights : [],
       usage: data.usage,
       model: data.model || CONFIG.defaultModel
     };
@@ -329,6 +364,16 @@ async function handleAskSpirit(message) {
     conversations[tabId].push({ role, content, timestamp: Date.now() });
   }
 
+  // Helper: send highlight keywords to the content script (best-effort)
+  async function sendHighlights(keywords) {
+    if (!keywords || keywords.length === 0) return;
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: 'HIGHLIGHT_ELEMENTS', keywords });
+    } catch (_) {
+      // Content script unavailable (e.g. restricted page) — silently ignore
+    }
+  }
+
   try {
     if (!tabId) {
       chrome.runtime.sendMessage({
@@ -338,8 +383,10 @@ async function handleAskSpirit(message) {
       return;
     }
 
-    // Save the user's question to this tab's history
-    saveMessage('user', message.question);
+    // Save the user's question only on the initial (non-approved) call
+    if (!message.approved) {
+      saveMessage('user', message.question);
+    }
 
     // Use context captured when this tab's panel opened
     const stored = await chrome.storage.session.get(`ctx_${tabId}`);
@@ -356,6 +403,7 @@ async function handleAskSpirit(message) {
             const aiResponse = await askSpiritAIWithVision(message.question, screenshot, tab.url, tab.title);
             saveMessage('assistant', aiResponse.answer);
             sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+            await sendHighlights(aiResponse.highlights);
             return;
           }
         }
@@ -365,8 +413,21 @@ async function handleAskSpirit(message) {
       pageContext = contextResult.context;
     }
 
+    const useScreenshot = isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength;
+
+    // Classify the question (skip if already approved or if we'll use screenshot anyway)
+    if (!message.approved && !useScreenshot) {
+      const classification = await classifyQuestion(message.question, pageContext);
+      if (classification.type === 'plan' && Array.isArray(classification.steps) && classification.steps.length > 0) {
+        let domain = pageContext.url;
+        try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
+        sendResponse({ plan: { steps: classification.steps, domain, originalQuestion: message.question } });
+        return;
+      }
+    }
+
     // Fall back to screenshot for known JS-heavy apps or if extracted text is too short
-    if (isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength) {
+    if (useScreenshot) {
       console.log('Spirit.AI: Insufficient text, falling back to screenshot');
       const screenshot = await captureTabScreenshot(tabId);
       if (screenshot) {
@@ -375,14 +436,16 @@ async function handleAskSpirit(message) {
         );
         saveMessage('assistant', aiResponse.answer);
         sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+        await sendHighlights(aiResponse.highlights);
         return;
       }
     }
 
     // Call AI provider with text context
-    const aiResponse = await askSpiritAI(message.question, pageContext);
+    const aiResponse = await askSpiritAI(message.question, pageContext, message.model);
     saveMessage('assistant', aiResponse.answer);
     sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+    await sendHighlights(aiResponse.highlights);
 
   } catch (error) {
     console.error('Spirit.AI: Error handling ASK_SPIRIT:', error);
@@ -396,6 +459,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     handleAskSpirit(message);
   } else if (message.type === 'GET_CONVERSATION') {
     sendResponse({ conversation: conversations[message.tabId] || [] });
+  } else if (message.type === 'CLEAR_CONVERSATION') {
+    delete conversations[message.tabId];
+    chrome.storage.session.remove(`ctx_${message.tabId}`);
   }
   return false;
 });

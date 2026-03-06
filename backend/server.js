@@ -32,7 +32,12 @@ app.use(express.json({ limit: '10mb' }));
 const SYSTEM_PROMPT = `You are Spirit.AI, a browser-based assistant.
 Answer the user's question using only the provided webpage content (title, URL, and extracted text).
 If the webpage content does not contain the answer, say so explicitly.
-Be concise and accurate. Do not invent details.`;
+Be concise and accurate. Do not invent details.
+
+Respond with valid JSON in this exact format:
+{"answer": "your answer here", "highlights": ["phrase 1", "phrase 2"]}
+
+The "highlights" array must contain 2-5 short words or phrases from the page content that you are directly referencing in your answer. Use an empty array if you are not referencing specific content.`;
 
 /**
  * Formats the user prompt with page context and question
@@ -46,6 +51,60 @@ ${pageContext.text}
 
 User Question: ${question}`;
 }
+
+// System prompt for classifying questions
+const CLASSIFY_PROMPT = `You are Spirit.AI, a browser assistant.
+Given a user question and webpage context, decide if answering requires multiple sequential actions (like summarizing AND finding related links, extracting multiple things, comparing items) or if it is a simple direct question.
+
+Respond with valid JSON only:
+{"type": "plan", "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."]} for multi-step action requests
+{"type": "direct"} for simple questions
+
+Multi-step examples: "summarize and find related links", "find all prices and compare them", "extract the main points and suggest follow-up reading", "list all authors and their topics"
+Direct examples: "what is this page about?", "who wrote this?", "what is the main topic?", "translate this paragraph", "what does X mean?"
+
+Keep steps short and action-oriented (under 10 words each). Return 2-4 steps maximum.`;
+
+/**
+ * POST /api/classify
+ * Classifies whether a request needs a plan or a direct answer
+ */
+app.post('/api/classify', async (req, res) => {
+  const { question, pageContext } = req.body;
+
+  if (!question || !pageContext) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const modelToUse = 'gpt-4o-mini'; // Always use fast model for classification
+  const userPrompt = `Page Title: ${pageContext.title}\nPage URL: ${pageContext.url}\n\nUser Question: ${question}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: modelToUse,
+      messages: [
+        { role: 'system', content: CLASSIFY_PROMPT },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+      max_tokens: 300
+    });
+
+    const rawContent = response.choices[0]?.message?.content || '{}';
+    let parsed;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      parsed = { type: 'direct' };
+    }
+
+    res.json(parsed);
+  } catch (error) {
+    console.error('Classification error (defaulting to direct):', error.message);
+    res.json({ type: 'direct' });
+  }
+});
 
 /**
  * POST /api/chat
@@ -101,6 +160,7 @@ app.post('/api/chat', async (req, res) => {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt }
         ],
+        response_format: { type: 'json_object' },
         temperature: 0.7,
         max_tokens: 2000
       });
@@ -112,13 +172,14 @@ app.post('/api/chat', async (req, res) => {
       if (modelError.status === 404 || modelError.code === 'model_not_found') {
         console.warn(`Model ${modelToUse} not available, falling back to ${fallbackModel}`);
         modelUsed = fallbackModel;
-        
+
         response = await openai.chat.completions.create({
           model: fallbackModel,
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: userPrompt }
           ],
+          response_format: { type: 'json_object' },
           temperature: 0.7,
           max_tokens: 2000
         });
@@ -127,14 +188,22 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // Extract response
-    const answer = response.choices[0]?.message?.content || 'I apologize, but I couldn\'t generate a response.';
+    // Parse structured JSON response
+    const rawContent = response.choices[0]?.message?.content || '{}';
+    let parsed;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      parsed = { answer: rawContent, highlights: [] };
+    }
+    const answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
+    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
     console.log('📤 Sending response back to client');
-    console.log('Answer length:', answer.length);
 
     // Return response
     res.json({
       answer,
+      highlights,
       usage: {
         prompt_tokens: response.usage?.prompt_tokens || 0,
         completion_tokens: response.usage?.completion_tokens || 0,
@@ -204,7 +273,12 @@ app.post('/api/chat/vision', async (req, res) => {
     const systemPrompt = `You are Spirit.AI, a browser-based assistant.
 You are given a screenshot of a webpage. Answer the user's question based on what you can see in the screenshot.
 If the screenshot does not contain the answer, say so explicitly.
-Be concise and accurate. Do not invent details.`;
+Be concise and accurate. Do not invent details.
+
+Respond with valid JSON in this exact format:
+{"answer": "your answer here", "highlights": ["phrase 1", "phrase 2"]}
+
+The "highlights" array must contain 2-5 short words or phrases visible in the screenshot that you are directly referencing in your answer. Use an empty array if you are not referencing specific content.`;
 
     const response = await openai.chat.completions.create({
       model: modelToUse,
@@ -224,15 +298,26 @@ Be concise and accurate. Do not invent details.`;
           ]
         }
       ],
+      response_format: { type: 'json_object' },
       temperature: 0.7,
       max_tokens: 2000
     });
 
-    const answer = response.choices[0]?.message?.content || 'I apologize, but I couldn\'t generate a response.';
+    // Parse structured JSON response
+    const rawContent = response.choices[0]?.message?.content || '{}';
+    let parsed;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      parsed = { answer: rawContent, highlights: [] };
+    }
+    const answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
+    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
     console.log('✅ Vision response sent');
 
     res.json({
       answer,
+      highlights,
       usage: {
         prompt_tokens: response.usage?.prompt_tokens || 0,
         completion_tokens: response.usage?.completion_tokens || 0,

@@ -9,8 +9,46 @@
 <body>
   <div class="container">
     <header class="header">
-      <img src="icons/Brand Logo.svg" alt="Spirit.AI" class="logo">
-      <h1>Spirit.AI</h1>
+      <div class="model-selector" id="modelSelector">
+        <button class="model-selector-btn" id="modelSelectorBtn">
+          <img id="modelLogo" src="icons/ChatGPT_Logo_0.svg" alt="" class="model-logo">
+          <span id="modelLabel">GPT-4o</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        <div class="model-dropdown" id="modelDropdown">
+          <button class="model-option active" data-model="gpt-4o" data-logo="icons/ChatGPT_Logo_0.svg">
+            <img src="icons/ChatGPT_Logo_0.svg" alt="" class="model-option-logo">
+            <div>
+              <span class="model-option-name">GPT-4o</span>
+              <span class="model-option-desc">Most capable</span>
+            </div>
+          </button>
+          <button class="model-option" data-model="gpt-4o-mini" data-logo="icons/ChatGPT_Logo_0.svg">
+            <img src="icons/ChatGPT_Logo_0.svg" alt="" class="model-option-logo">
+            <div>
+              <span class="model-option-name">GPT-4o mini</span>
+              <span class="model-option-desc">Faster & lighter</span>
+            </div>
+          </button>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="clearChatButton" class="header-icon-btn" title="New chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+            <line x1="12" y1="7" x2="12" y2="13"></line>
+            <line x1="9" y1="10" x2="15" y2="10"></line>
+          </svg>
+        </button>
+        <button id="settingsButton" class="header-icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
     </header>
     
     <div class="error-banner" id="errorBanner" style="display: none;">
@@ -24,26 +62,31 @@
       </div>
     </div>
     
-    <div class="loading-indicator" id="loadingIndicator" style="display: none;">
-      <div class="loading-spinner"></div>
-      <span class="loading-text">Spirit.AI is thinking...</span>
-      <div class="loading-progress" id="loadingProgress" style="display: none;">
-        Taking longer than expected...
-      </div>
-    </div>
-    
     <div class="input-container">
-      <textarea 
-        id="messageInput" 
-        placeholder="Ask a question about this page..."
-        rows="1"
-      ></textarea>
-      <button id="sendButton" class="send-button" disabled>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+      <div class="input-pill">
+        <textarea
+          id="messageInput"
+          placeholder="Ask anything..."
+          rows="1"
+        ></textarea>
+        <div class="input-toolbar">
+          <button class="analyze-page-btn" id="analyzePageBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <circle cx="11" cy="14" r="2.5"></circle>
+              <line x1="13.5" y1="16.5" x2="16" y2="19"></line>
+            </svg>
+            <span>Analyze page</span>
+          </button>
+          <button id="sendButton" class="send-button" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
   
