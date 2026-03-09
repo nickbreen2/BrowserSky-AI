@@ -358,20 +358,15 @@ async function handleAskSpirit(message) {
     chrome.runtime.sendMessage({ ...payload, type: 'SPIRIT_RESPONSE', tabId });
   }
 
+  // Helper: send a progress step to the side panel
+  function sendProgress(step, label) {
+    chrome.runtime.sendMessage({ type: 'SPIRIT_PROGRESS', tabId, step, label });
+  }
+
   // Helper: save a message to this tab's conversation history
   function saveMessage(role, content) {
     if (!conversations[tabId]) conversations[tabId] = [];
     conversations[tabId].push({ role, content, timestamp: Date.now() });
-  }
-
-  // Helper: send highlight keywords to the content script (best-effort)
-  async function sendHighlights(keywords) {
-    if (!keywords || keywords.length === 0) return;
-    try {
-      await chrome.tabs.sendMessage(tabId, { type: 'HIGHLIGHT_ELEMENTS', keywords });
-    } catch (_) {
-      // Content script unavailable (e.g. restricted page) — silently ignore
-    }
   }
 
   try {
@@ -387,6 +382,7 @@ async function handleAskSpirit(message) {
     if (!message.approved) {
       saveMessage('user', message.question);
     }
+    sendProgress('page_read', 'Reading page...');
 
     // Use context captured when this tab's panel opened
     const stored = await chrome.storage.session.get(`ctx_${tabId}`);
@@ -397,13 +393,14 @@ async function handleAskSpirit(message) {
       if (contextResult.error) {
         if (contextResult.error !== 'RESTRICTED_PAGE') {
           // Non-restricted failure: try screenshot fallback
+          sendProgress('screenshot', 'Taking screenshot...');
           const screenshot = await captureTabScreenshot(tabId);
           if (screenshot) {
+            sendProgress('thinking', 'Thinking...');
             const tab = await chrome.tabs.get(tabId);
             const aiResponse = await askSpiritAIWithVision(message.question, screenshot, tab.url, tab.title);
             saveMessage('assistant', aiResponse.answer);
             sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
-            await sendHighlights(aiResponse.highlights);
             return;
           }
         }
@@ -413,39 +410,41 @@ async function handleAskSpirit(message) {
       pageContext = contextResult.context;
     }
 
-    const useScreenshot = isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength;
-
-    // Classify the question (skip if already approved or if we'll use screenshot anyway)
-    if (!message.approved && !useScreenshot) {
+    // Always show a plan approval on first (non-approved) ask
+    if (!message.approved) {
       const classification = await classifyQuestion(message.question, pageContext);
-      if (classification.type === 'plan' && Array.isArray(classification.steps) && classification.steps.length > 0) {
-        let domain = pageContext.url;
-        try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
-        sendResponse({ plan: { steps: classification.steps, domain, originalQuestion: message.question } });
-        return;
-      }
+      const steps = (Array.isArray(classification.steps) && classification.steps.length > 0)
+        ? classification.steps
+        : ['Read page content', 'Analyze your question', 'Write response'];
+      let domain = pageContext.url;
+      try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
+      sendResponse({ plan: { steps, domain, originalQuestion: message.question } });
+      return;
     }
+
+    const useScreenshot = isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength;
 
     // Fall back to screenshot for known JS-heavy apps or if extracted text is too short
     if (useScreenshot) {
       console.log('Spirit.AI: Insufficient text, falling back to screenshot');
+      sendProgress('screenshot', 'Taking screenshot...');
       const screenshot = await captureTabScreenshot(tabId);
       if (screenshot) {
+        sendProgress('thinking', 'Thinking...');
         const aiResponse = await askSpiritAIWithVision(
           message.question, screenshot, pageContext.url, pageContext.title
         );
         saveMessage('assistant', aiResponse.answer);
         sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
-        await sendHighlights(aiResponse.highlights);
         return;
       }
     }
 
     // Call AI provider with text context
+    sendProgress('thinking', 'Thinking...');
     const aiResponse = await askSpiritAI(message.question, pageContext, message.model);
     saveMessage('assistant', aiResponse.answer);
     sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
-    await sendHighlights(aiResponse.highlights);
 
   } catch (error) {
     console.error('Spirit.AI: Error handling ASK_SPIRIT:', error);

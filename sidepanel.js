@@ -1,5 +1,16 @@
 // Spirit.AI Side Panel Logic
 
+const MODELS = [
+  { id: 'gpt-4o',                    name: 'GPT-4o',        desc: 'Most capable OpenAI model',  logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Reasoning', 'Coding', 'Writing'],                credits: 10, pro: true  },
+  { id: 'gpt-4o-mini',               name: 'GPT-4o mini',   desc: 'Faster & lighter',            logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Writing', 'Speed'],                              credits: 2,  pro: false },
+  { id: 'claude-sonnet-4-6',         name: 'Claude Sonnet', desc: 'Smart & efficient',           logo: 'icons/claude.svg',         categories: ['Reasoning', 'Coding', 'Writing', 'Large Context'], credits: 8,  pro: true  },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku',  desc: 'Fastest Claude',              logo: 'icons/claude.svg',         categories: ['Speed'],                                          credits: 1,  pro: false },
+  { id: 'grok-3',                    name: 'Grok 3',        desc: "xAI's most capable",          logo: 'icons/grok.svg',           categories: ['Reasoning', 'Coding', 'Writing'],                credits: 8,  pro: true  },
+  { id: 'grok-3-mini',               name: 'Grok 3 Mini',   desc: 'Fast & efficient',            logo: 'icons/grok.svg',           categories: ['Speed'],                                          credits: 2,  pro: false },
+  { id: 'MiniMax-Text-01',           name: 'MiniMax',       desc: '1M context window',           logo: 'icons/minimax-color.svg',  categories: ['Large Context'],                                 credits: 3,  pro: false },
+];
+const MODEL_CATEGORIES = ['All', 'Reasoning', 'Coding', 'Writing', 'Speed', 'Large Context'];
+
 class SpiritAIPanel {
   constructor() {
     this.messages = [];
@@ -22,9 +33,9 @@ class SpiritAIPanel {
     this.errorClose = document.getElementById('errorClose');
     this.clearChatButton = document.getElementById('clearChatButton');
     this.modelSelectorBtn = document.getElementById('modelSelectorBtn');
-    this.modelDropdown = document.getElementById('modelDropdown');
     this.modelLabel = document.getElementById('modelLabel');
     this.modelLogo = document.getElementById('modelLogo');
+    this.modelPickerView = 'grid';
     this.pageIndicator        = document.getElementById('pageIndicator');
     this.pageIndicatorFavicon = document.getElementById('pageIndicatorFavicon');
     this.pageIndicatorTitle   = document.getElementById('pageIndicatorTitle');
@@ -76,32 +87,21 @@ class SpiritAIPanel {
       this.hideError();
     });
 
-    // Model selector toggle
+    // Model picker — opens bottom-sheet
     this.modelSelectorBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.modelDropdown.classList.toggle('open');
-    });
-
-    document.addEventListener('click', () => {
-      this.modelDropdown.classList.remove('open');
-    });
-
-    document.querySelectorAll('.model-option').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.selectedModel = btn.dataset.model;
-        this.modelLabel.textContent = btn.querySelector('.model-option-name').textContent;
-        this.modelLogo.src = btn.dataset.logo;
-        document.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.modelDropdown.classList.remove('open');
-      });
+      this.renderModelPicker();
     });
 
     // Clear chat
-    this.clearChatButton.addEventListener('click', () => {
+    this.clearChatButton.addEventListener('click', async () => {
       this.messages = [];
       this.pendingPlan = null;
-      this.messagesContainer.innerHTML = '<div class="welcome-message"><p>Ask me anything about the current page!</p></div>';
+      this.dismissPlanSheet();
+      this.messagesContainer.innerHTML = '<div class="welcome-message"><img src="icons/BirdBot.svg" alt="BirdBot" class="welcome-logo"><p>Ask your BirdBot anything about this page</p><div class="suggestion-chips" id="suggestionChips"></div></div>';
+      this.suggestionChips = document.getElementById('suggestionChips');
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) this.showSuggestions(tab);
       if (this.tabId !== null) {
         chrome.runtime.sendMessage({ type: 'CLEAR_CONVERSATION', tabId: this.tabId });
       }
@@ -109,6 +109,7 @@ class SpiritAIPanel {
 
     // Plan keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.dismissModelPicker();
       if (!this.pendingPlan) return;
       if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -125,6 +126,8 @@ class SpiritAIPanel {
     chrome.runtime.onMessage.addListener((message) => {
       if (message.type === 'SPIRIT_RESPONSE' && message.tabId === this.tabId) {
         this.handleSpiritResponse(message);
+      } else if (message.type === 'SPIRIT_PROGRESS' && message.tabId === this.tabId) {
+        this.appendProgressStep(message.step, message.label);
       }
     });
 
@@ -159,11 +162,6 @@ class SpiritAIPanel {
     this.hideError();
 
     try {
-      // Clear any existing highlights before asking a new question
-      if (this.tabId !== null) {
-        chrome.tabs.sendMessage(this.tabId, { type: 'CLEAR_HIGHLIGHTS' }).catch(() => {});
-      }
-
       // Send message to service worker
       chrome.runtime.sendMessage({
         type: 'ASK_SPIRIT',
@@ -191,20 +189,186 @@ class SpiritAIPanel {
     }
   }
 
+  dismissPlanSheet() {
+    const sheet = document.getElementById('planSheet');
+    const backdrop = document.getElementById('planSheetBackdrop');
+    if (sheet) sheet.remove();
+    if (backdrop) backdrop.remove();
+  }
+
+  dismissModelPicker() {
+    document.getElementById('modelPickerSheet')?.remove();
+    document.getElementById('modelPickerBackdrop')?.remove();
+  }
+
+  renderModelPicker() {
+    this.dismissModelPicker();
+
+    // Backdrop
+    const backdrop = document.createElement('div');
+    backdrop.id = 'modelPickerBackdrop';
+    backdrop.addEventListener('click', () => this.dismissModelPicker());
+    document.body.appendChild(backdrop);
+
+    // Sheet
+    const sheet = document.createElement('div');
+    sheet.id = 'modelPickerSheet';
+    sheet.className = 'model-picker-sheet';
+
+    // Drag handle
+    const handle = document.createElement('div');
+    handle.className = 'model-picker-handle';
+    sheet.appendChild(handle);
+
+    // Header row
+    const headerRow = document.createElement('div');
+    headerRow.className = 'model-picker-header';
+    headerRow.innerHTML = `
+      <span class="model-picker-title">Choose a model</span>
+      <div class="model-picker-view-toggle">
+        <button class="model-picker-view-btn ${this.modelPickerView === 'grid' ? 'active' : ''}" data-view="grid" title="Grid view">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+          </svg>
+        </button>
+        <button class="model-picker-view-btn ${this.modelPickerView === 'list' ? 'active' : ''}" data-view="list" title="List view">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+        </button>
+      </div>`;
+    sheet.appendChild(headerRow);
+
+    headerRow.querySelectorAll('.model-picker-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.modelPickerView = btn.dataset.view;
+        headerRow.querySelectorAll('.model-picker-view-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.view === this.modelPickerView);
+        });
+        this._refreshModelGrid(sheet);
+      });
+    });
+
+    // Search bar
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'model-picker-search-wrap';
+    searchWrap.innerHTML = `
+      <svg class="model-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input class="model-picker-search" id="modelPickerSearch" type="text" placeholder="Search models" autocomplete="off">`;
+    sheet.appendChild(searchWrap);
+
+    // Category pills
+    const CATEGORY_ICONS = {
+      'All':           `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`,
+      'Reasoning':     `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0112 4.5v0A2.5 2.5 0 019.5 7h-5A2.5 2.5 0 012 4.5v0A2.5 2.5 0 014.5 2h5z"/><path d="M14.5 2A2.5 2.5 0 0117 4.5v0A2.5 2.5 0 0114.5 7h0"/><path d="M12 7v4"/><path d="M8 11h8a4 4 0 014 4v0a4 4 0 01-4 4H8a4 4 0 01-4-4v0a4 4 0 014-4z"/><line x1="8" y1="19" x2="8" y2="22"/><line x1="16" y1="19" x2="16" y2="22"/></svg>`,
+      'Coding':        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+      'Writing':       `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+      'Speed':         `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+      'Large Context': `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+    };
+
+    const pills = document.createElement('div');
+    pills.className = 'model-picker-pills';
+    pills.dataset.activeCategory = 'All';
+    MODEL_CATEGORIES.forEach(cat => {
+      const pill = document.createElement('button');
+      pill.className = 'model-picker-pill' + (cat === 'All' ? ' active' : '');
+      pill.innerHTML = `${CATEGORY_ICONS[cat] || ''}<span>${cat}</span>`;
+      pill.dataset.category = cat;
+      pill.addEventListener('click', () => {
+        pills.dataset.activeCategory = cat;
+        pills.querySelectorAll('.model-picker-pill').forEach(p => {
+          p.classList.toggle('active', p.dataset.category === cat);
+        });
+        this._refreshModelGrid(sheet);
+      });
+      pills.appendChild(pill);
+    });
+    sheet.appendChild(pills);
+
+    // Grid container (populated by _refreshModelGrid)
+    const gridContainer = document.createElement('div');
+    gridContainer.id = 'modelPickerGrid';
+    sheet.appendChild(gridContainer);
+
+    document.body.appendChild(sheet);
+
+    // Wire search after sheet is in DOM
+    sheet.querySelector('#modelPickerSearch').addEventListener('input', () => this._refreshModelGrid(sheet));
+    sheet.querySelector('#modelPickerSearch').focus();
+
+    this._refreshModelGrid(sheet);
+  }
+
+  _refreshModelGrid(sheet) {
+    const query = (sheet.querySelector('#modelPickerSearch')?.value || '').toLowerCase();
+    const activeCategory = sheet.querySelector('.model-picker-pills')?.dataset.activeCategory || 'All';
+    const isGrid = this.modelPickerView === 'grid';
+
+    const filtered = MODELS.filter(m => {
+      const matchesCategory = activeCategory === 'All' || m.categories.includes(activeCategory);
+      const matchesSearch = !query || m.name.toLowerCase().includes(query) || m.desc.toLowerCase().includes(query);
+      return matchesCategory && matchesSearch;
+    });
+
+    const container = sheet.querySelector('#modelPickerGrid');
+    container.innerHTML = '';
+    container.className = isGrid ? 'model-picker-grid' : 'model-picker-list';
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<p class="model-picker-empty">No models match your search.</p>';
+      return;
+    }
+
+    filtered.forEach(model => {
+      const card = document.createElement('button');
+      card.className = 'model-picker-card' + (model.id === this.selectedModel ? ' active' : '');
+
+      const isSelected = model.id === this.selectedModel;
+      card.innerHTML = `
+        <div class="model-picker-card-top">
+          <img class="model-picker-card-logo" src="${model.logo}" alt="${model.name}">
+          <div class="model-picker-card-indicators">
+            ${isSelected ? '<span class="model-picker-selected-dot"></span>' : ''}
+          </div>
+        </div>
+        <span class="model-picker-card-name">${model.name}</span>
+        <span class="model-picker-card-desc">${model.desc}</span>`;
+
+      card.addEventListener('click', () => {
+        this.selectedModel = model.id;
+        this.modelLabel.textContent = model.name;
+        this.modelLogo.src = model.logo;
+        this.dismissModelPicker();
+      });
+
+      container.appendChild(card);
+    });
+  }
+
   renderPlanCard(plan) {
-    const existing = this.messagesContainer.querySelector('.plan-card');
-    if (existing) existing.remove();
+    this.dismissPlanSheet();
 
-    const welcomeMsg = this.messagesContainer.querySelector('.welcome-message');
-    if (welcomeMsg) welcomeMsg.remove();
+    // Backdrop
+    const backdrop = document.createElement('div');
+    backdrop.id = 'planSheetBackdrop';
+    document.body.appendChild(backdrop);
 
-    const card = document.createElement('div');
-    card.className = 'plan-card';
+    // Sheet
+    const sheet = document.createElement('div');
+    sheet.id = 'planSheet';
+    sheet.className = 'plan-sheet';
 
     // Header
     const header = document.createElement('div');
     header.className = 'plan-card-header';
-    header.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span>BirdBot AI's plan</span>`;
+    header.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span>BirdBot's plan</span>`;
 
     // Sites section
     const sites = document.createElement('div');
@@ -237,15 +401,14 @@ class SpiritAIPanel {
     footer.className = 'plan-card-footer';
     footer.textContent = "BirdBot AI will only use the sites listed. You'll be asked before accessing anything else.";
 
-    card.appendChild(header);
-    card.appendChild(sites);
-    card.appendChild(steps);
-    card.appendChild(approveBtn);
-    card.appendChild(changesBtn);
-    card.appendChild(footer);
+    sheet.appendChild(header);
+    sheet.appendChild(sites);
+    sheet.appendChild(steps);
+    sheet.appendChild(approveBtn);
+    sheet.appendChild(changesBtn);
+    sheet.appendChild(footer);
 
-    this.messagesContainer.appendChild(card);
-    this.scrollToBottom();
+    document.body.appendChild(sheet);
   }
 
   approvePlan() {
@@ -253,15 +416,9 @@ class SpiritAIPanel {
     const { originalQuestion } = this.pendingPlan;
     this.pendingPlan = null;
 
-    const card = this.messagesContainer.querySelector('.plan-card');
-    if (card) card.remove();
-
+    this.dismissPlanSheet();
     this.setLoading(true);
     this.hideError();
-
-    if (this.tabId !== null) {
-      chrome.tabs.sendMessage(this.tabId, { type: 'CLEAR_HIGHLIGHTS' }).catch(() => {});
-    }
 
     chrome.runtime.sendMessage({
       type: 'ASK_SPIRIT',
@@ -277,8 +434,7 @@ class SpiritAIPanel {
     const { originalQuestion } = this.pendingPlan;
     this.pendingPlan = null;
 
-    const card = this.messagesContainer.querySelector('.plan-card');
-    if (card) card.remove();
+    this.dismissPlanSheet();
 
     // Remove the user message that triggered the plan from the UI and history
     const userMsgs = this.messagesContainer.querySelectorAll('.message.user');
@@ -372,16 +528,37 @@ class SpiritAIPanel {
     this.updateSendButtonState();
 
     if (loading) {
+      const openingPhrases = [
+        'On it...', 'Let me check...', 'Looking into that...', 'Give me a second...',
+        'Digging in...', 'On the case...', 'Figuring that out...', 'Let me look at that...',
+        'Working on it...', 'Thinking through this...',
+      ];
+      const titleText = openingPhrases[Math.floor(Math.random() * openingPhrases.length)];
+
       const typingEl = document.createElement('div');
       typingEl.id = 'typingIndicator';
       typingEl.className = 'message assistant';
-      typingEl.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+      typingEl.innerHTML = `
+        <div class="progress-container">
+          <div class="progress-header">
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span class="progress-title">${titleText}</span>
+          </div>
+          <div class="progress-steps" id="progressSteps">
+            <div class="progress-timeline"></div>
+          </div>
+        </div>`;
       this.messagesContainer.appendChild(typingEl);
       this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
       this.loadingProgressTimeout = setTimeout(() => {
-        const el = document.getElementById('typingIndicator');
-        if (el) el.querySelector('.typing-dots').insertAdjacentHTML('afterend', '<div class="loading-progress-inline">Taking longer than expected...</div>');
+        const stepsEl = document.getElementById('progressSteps');
+        if (stepsEl && stepsEl.querySelectorAll('.progress-step').length === 0) {
+          const row = document.createElement('div');
+          row.className = 'progress-step';
+          row.innerHTML = '<span class="progress-step-icon">⏳</span><span class="progress-step-label">Taking longer than expected...</span>';
+          stepsEl.appendChild(row);
+        }
       }, 10000);
     } else {
       const typingEl = document.getElementById('typingIndicator');
@@ -391,6 +568,25 @@ class SpiritAIPanel {
         this.loadingProgressTimeout = null;
       }
     }
+  }
+
+  appendProgressStep(step, label) {
+    const stepsEl = document.getElementById('progressSteps');
+    if (!stepsEl) return;
+    const row = document.createElement('div');
+    row.className = 'progress-step';
+    row.innerHTML = `<span class="progress-step-icon">🔧</span><span class="progress-step-label">${label}</span>`;
+    stepsEl.appendChild(row);
+
+    const stepTitles = {
+      page_read:  'Reading the page...',
+      screenshot: 'Taking a screenshot...',
+      thinking:   'Thinking it through...',
+    };
+    const titleEl = document.querySelector('.progress-title');
+    if (titleEl && stepTitles[step]) titleEl.textContent = stepTitles[step];
+
+    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
   }
 
   showError(message) {
