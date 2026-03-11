@@ -1,9 +1,10 @@
-// Spirit.AI Backend Proxy Server
+// Browsersky Backend Proxy Server
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import { verifyToken } from '@clerk/backend';
 
 // Load environment variables
 dotenv.config();
@@ -44,8 +45,23 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// System prompt for Spirit.AI
-const SYSTEM_PROMPT = `You are Spirit.AI, a browser-based assistant.
+// Clerk auth middleware — verifies the JWT token on protected routes
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+  const token = authHeader.slice(7);
+  try {
+    await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY });
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+  }
+}
+
+// System prompt for Browsersky
+const SYSTEM_PROMPT = `You are Browsersky, a browser-based assistant.
 Answer the user's question using only the provided webpage content (title, URL, and extracted text).
 If the webpage content does not contain the answer, say so explicitly.
 Be concise and accurate. Do not invent details.
@@ -69,7 +85,7 @@ User Question: ${question}`;
 }
 
 // System prompt for classifying questions
-const CLASSIFY_PROMPT = `You are Spirit.AI, a browser assistant.
+const CLASSIFY_PROMPT = `You are Browsersky, a browser assistant.
 Given a user question and webpage context, decide if answering requires multiple sequential actions (like summarizing AND finding related links, extracting multiple things, comparing items) or if it is a simple direct question.
 
 Respond with valid JSON only:
@@ -85,7 +101,7 @@ Keep steps short and action-oriented (under 10 words each). Return 2-4 steps max
  * POST /api/classify
  * Classifies whether a request needs a plan or a direct answer
  */
-app.post('/api/classify', async (req, res) => {
+app.post('/api/classify', requireAuth, async (req, res) => {
   const { question, pageContext } = req.body;
 
   if (!question || !pageContext) {
@@ -126,7 +142,7 @@ app.post('/api/classify', async (req, res) => {
  * POST /api/chat
  * Handles chat requests from the extension
  */
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireAuth, async (req, res) => {
   console.log('=== Incoming request ===');
   console.log('Question:', req.body.question);
   console.log('Model:', req.body.model || 'gpt-4o-mini');
@@ -341,7 +357,7 @@ app.post('/api/chat', async (req, res) => {
  * POST /api/chat/vision
  * Handles vision requests — sends a screenshot to GPT-4o instead of text
  */
-app.post('/api/chat/vision', async (req, res) => {
+app.post('/api/chat/vision', requireAuth, async (req, res) => {
   console.log('=== Incoming vision request ===');
   console.log('Question:', req.body.question);
   console.log('Has screenshot:', !!req.body.screenshot);
@@ -360,7 +376,7 @@ app.post('/api/chat/vision', async (req, res) => {
     const url = pageInfo?.url || 'unknown';
     const title = pageInfo?.title || 'unknown';
 
-    const systemPrompt = `You are Spirit.AI, a browser-based assistant.
+    const systemPrompt = `You are Browsersky, a browser-based assistant.
 You are given a screenshot of a webpage. Answer the user's question based on what you can see in the screenshot.
 If the screenshot does not contain the answer, say so explicitly.
 Be concise and accurate. Do not invent details.
@@ -440,7 +456,7 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Spirit.AI backend server running on http://localhost:${PORT}`);
+  console.log(`Browsersky backend server running on http://localhost:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
 });
 

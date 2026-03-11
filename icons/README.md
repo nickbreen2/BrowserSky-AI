@@ -1,4 +1,4 @@
-# Spirit.AI Icons
+# Browsersky Icons
 
 This directory should contain the following icon files:
 - icon16.png (16x16 pixels)
@@ -9,13 +9,13 @@ This directory should contain the following icon files:
 ## Quick Setup Options
 
 ### Option 1: Use Online Tool
-1. Create a Spirit.AI logo/icon (or use a placeholder)
+1. Create a Browsersky logo/icon (or use a placeholder)
 2. Visit https://www.favicon-generator.org/ or similar
 3. Upload your icon and download all sizes
 4. Place them in this directory with the names above
 
 ### Option 2: Use Image Editor
-1. Create a 128x128 pixel icon with Spirit.AI branding
+1. Create a 128x128 pixel icon with Browsersky branding
 2. Export/resize to all required sizes
 3. Save as PNG files with the names above
 

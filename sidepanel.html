@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BirdBot AI</title>
+  <title>Browsersky AI</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
@@ -21,11 +21,10 @@
             <line x1="9" y1="10" x2="15" y2="10"></line>
           </svg>
         </button>
-        <button id="settingsButton" class="header-icon-btn" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path>
-          </svg>
+        <button id="profileBtn" class="header-icon-btn" title="Account" style="padding:0;border-radius:50%;">
+          <div class="profile-avatar-sm" id="headerAvatar">
+            <span id="headerAvatarInitials"></span>
+          </div>
         </button>
       </div>
     </header>
@@ -37,8 +36,8 @@
     
     <div class="messages-container" id="messagesContainer">
       <div class="welcome-message">
-        <img src="icons/BirdBot.svg" alt="BirdBot" class="welcome-logo">
-        <p>Ask your BirdBot anything about this page</p>
+        <img src="icons/Browsersky-full-logo.svg" alt="Browsersky" class="welcome-logo">
+        <p>Ask Browsersky anything about this page</p>
         <div class="suggestion-chips" id="suggestionChips"></div>
       </div>
     </div>

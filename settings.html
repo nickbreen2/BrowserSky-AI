@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browsersky Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+
+  <div class="page-shell">
+
+    <!-- Top header bar -->
+    <header class="page-header">
+      <h1 class="page-title">Browsersky settings</h1>
+      <div class="page-header-user" id="headerUser">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span id="headerEmail">—</span>
+      </div>
+    </header>
+
+    <div class="page-body">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <nav class="sidebar-nav">
+          <button class="sidebar-item active" data-tab="account">Settings</button>
+          <button class="sidebar-item" data-tab="subscription">Subscription</button>
+        </nav>
+        <div class="sidebar-footer">
+          <button class="sidebar-signout" id="signOutBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>Log out</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="page-content">
+
+        <!-- Settings tab -->
+        <section class="tab-panel active" id="tabAccount">
+
+          <div class="content-card">
+            <div class="content-card-header">
+              <h2>Profile</h2>
+              <p>Your account information</p>
+            </div>
+            <div class="content-card-body">
+              <div class="profile-row">
+                <div class="profile-avatar" id="settingsAvatar">
+                  <span id="settingsAvatarInitial">?</span>
+                </div>
+                <div class="profile-info">
+                  <div class="profile-email" id="settingsEmail">—</div>
+                  <div class="profile-plan-tag">Free Plan</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="content-card danger-content-card">
+            <div class="content-card-header">
+              <h2 class="danger-title">Danger zone</h2>
+              <p>Irreversible and destructive actions</p>
+            </div>
+            <div class="content-card-body">
+              <div class="setting-row">
+                <div class="setting-row-info">
+                  <div class="setting-row-label">Delete account</div>
+                  <div class="setting-row-desc">Permanently delete your account and all associated data. This cannot be undone.</div>
+                </div>
+                <button class="danger-action-btn" id="deleteAccountBtn">Delete account</button>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- Subscription tab -->
+        <section class="tab-panel" id="tabSubscription">
+
+          <div class="content-card">
+            <div class="content-card-header">
+              <h2>Current plan</h2>
+              <p>You are on the free plan</p>
+            </div>
+            <div class="content-card-body">
+              <div class="usage-row">
+                <div class="usage-stat">
+                  <span class="usage-number" id="usageCredits">—</span>
+                  <span class="usage-desc" id="usageCreditsDesc">credits left</span>
+                </div>
+                <button class="upgrade-inline-btn" id="usageUpgradeBtn">
+                  Go Pro
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="content-card">
+            <div class="content-card-header">
+              <h2>Upgrade your plan</h2>
+              <p>Get unlimited access to all models and features</p>
+            </div>
+            <div class="content-card-body">
+              <div class="billing-toggle-row">
+                <div class="billing-toggle" id="billingToggle">
+                  <button class="billing-btn active" data-period="monthly">Monthly</button>
+                  <button class="billing-btn" data-period="annual">
+                    Annual
+                    <span class="billing-save-chip">35% off</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="plans-row">
+                <div class="plan-col">
+                  <div class="plan-col-name">Free</div>
+                  <div class="plan-col-price">$0 <span>/ month</span></div>
+                  <ul class="plan-col-features">
+                    <li>50 messages / month</li>
+                    <li>Free models only</li>
+                    <li>Basic page analysis</li>
+                    <li>Community support</li>
+                  </ul>
+                  <div class="plan-col-current">Current plan</div>
+                </div>
+
+                <div class="plan-col plan-col-pro">
+                  <div class="plan-col-name">
+                    Pro
+                    <span class="plan-popular-pill">Most Popular</span>
+                  </div>
+                  <div class="plan-col-price">
+                    <span class="plan-original" id="proOriginalPrice" style="display:none;">$20</span>
+                    <span id="proPrice">$20</span>
+                    <span id="proPeriod">/ month</span>
+                  </div>
+                  <div class="plan-billed-note" id="proBilledNote" style="display:none;">
+                    Billed annually — $<span id="proAnnualTotal">57</span>/yr
+                  </div>
+                  <ul class="plan-col-features">
+                    <li>Unlimited messages</li>
+                    <li>All models (GPT-4o, Claude, Grok)</li>
+                    <li>Advanced page analysis</li>
+                    <li>Priority support</li>
+                    <li>Early access to new features</li>
+                  </ul>
+                  <button class="plan-buy-btn" id="upgradeProBtn">Buy</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div class="modal-backdrop" id="deleteModalBackdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <h2 class="modal-title">Delete your account?</h2>
+      <p class="modal-desc">This action is permanent and cannot be undone. All your conversations, settings, and data will be permanently deleted.</p>
+      <div class="modal-actions">
+        <button class="modal-cancel" id="deleteModalCancel">Cancel</button>
+        <button class="modal-confirm" id="deleteModalConfirm">Delete account</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

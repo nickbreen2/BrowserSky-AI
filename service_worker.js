@@ -1,4 +1,4 @@
-// Spirit.AI Service Worker - Background Orchestrator
+// Browsersky Service Worker - Background Orchestrator
 
 // Per-tab conversation history { [tabId]: [{role, content, timestamp}] }
 const conversations = {};
@@ -24,21 +24,21 @@ chrome.action.onClicked.addListener(async (tab) => {
   chrome.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true });
   chrome.sidePanel.open({ tabId: tab.id });
 
-  // Add the tab to a Spirit.AI tab group for visual clarity
+  // Add the tab to a Browsersky tab group for visual clarity
   try {
-    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: 'BirdBot AI' });
+    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: 'Browsersky AI' });
     if (groups.length > 0) {
       await chrome.tabs.group({ tabIds: [tab.id], groupId: groups[0].id });
     } else {
       const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
-      await chrome.tabGroups.update(groupId, { title: 'BirdBot AI', color: 'purple' });
+      await chrome.tabGroups.update(groupId, { title: 'Browsersky AI', color: 'purple' });
     }
   } catch (e) {
-    console.warn('Spirit.AI: Tab grouping failed:', e);
+    console.warn('Browsersky: Tab grouping failed:', e);
   }
 
-  // Show scan border on the page to signal Spirit.AI is active
-  chrome.tabs.sendMessage(tab.id, { type: 'SPIRIT_SCANNING' }).catch(() => {});
+  // Show scan border on the page to signal Browsersky is active
+  chrome.tabs.sendMessage(tab.id, { type: 'BROWSERSKY_SCANNING' }).catch(() => {});
 
   // Capture page context now, keyed by tab ID
   const contextResult = await getPageContext(tab.id);
@@ -127,14 +127,14 @@ async function getPageContext(tabId) {
     } catch (messageError) {
       // If message fails, try to inject content script
       if (messageError.message && messageError.message.includes('Receiving end does not exist')) {
-        console.log('Spirit.AI: Content script not found, injecting...');
+        console.log('Browsersky: Content script not found, injecting...');
         try {
           // Clear the guard flag if it exists (in case of partial load)
           await chrome.scripting.executeScript({
             target: { tabId },
             func: () => {
-              if (window.__spiritAIContentScriptLoaded) {
-                delete window.__spiritAIContentScriptLoaded;
+              if (window.__browserskyContentScriptLoaded) {
+                delete window.__browserskyContentScriptLoaded;
               }
             }
           });
@@ -153,7 +153,7 @@ async function getPageContext(tabId) {
             type: 'GET_PAGE_CONTEXT'
           });
         } catch (injectError) {
-          console.error('Spirit.AI: Failed to inject content script:', injectError);
+          console.error('Browsersky: Failed to inject content script:', injectError);
           return {
             error: 'INJECTION_ERROR',
             message: 'Failed to load content script. Please refresh the page and try again.'
@@ -177,7 +177,7 @@ async function getPageContext(tabId) {
 
     return { context: response.context };
   } catch (error) {
-    console.error('Spirit.AI: Error getting page context:', error);
+    console.error('Browsersky: Error getting page context:', error);
     
     // Check if it's a restricted page error
     if (error.message && error.message.includes('Cannot access')) {
@@ -208,7 +208,7 @@ async function captureTabScreenshot(tabId) {
     });
     return dataUrl;
   } catch (error) {
-    console.warn('Spirit.AI: Screenshot capture failed:', error);
+    console.warn('Browsersky: Screenshot capture failed:', error);
     return null;
   }
 }
@@ -221,14 +221,21 @@ async function captureTabScreenshot(tabId) {
  * @param {string} title - Page title
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askSpiritAIWithVision(question, screenshotDataUrl, url, title) {
+async function getAuthHeaders() {
+  const { clerkToken } = await chrome.storage.local.get('clerkToken');
+  return clerkToken
+    ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clerkToken}` }
+    : { 'Content-Type': 'application/json' };
+}
+
+async function askBrowserskyWithVision(question, screenshotDataUrl, url, title) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
 
     const response = await fetch(CONFIG.visionEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         question,
         screenshot: screenshotDataUrl,
@@ -276,7 +283,7 @@ async function classifyQuestion(question, pageContext) {
 
     const response = await fetch(CONFIG.classifyEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ question, pageContext }),
       signal: controller.signal
     });
@@ -298,16 +305,14 @@ async function classifyQuestion(question, pageContext) {
  * @param {Object} pageContext - Page context {title, url, text}
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askSpiritAI(question, pageContext, model) {
+async function askBrowsersky(question, pageContext, model) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
 
     const response = await fetch(CONFIG.backendEndpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         question,
         pageContext,
@@ -345,22 +350,22 @@ async function askSpiritAI(question, pageContext, model) {
 }
 
 /**
- * Handles ASK_SPIRIT messages from the side panel
+ * Handles ASK_BROWSERSKY messages from the side panel
  * @param {Object} message - Message from side panel
  * @param {chrome.runtime.MessageSender} sender - Message sender
  * @param {Function} sendResponse - Response callback
  */
-async function handleAskSpirit(message) {
+async function handleAskBrowsersky(message) {
   const tabId = message.tabId;
 
   // Helper: send response tagged with tabId so panels can filter
   function sendResponse(payload) {
-    chrome.runtime.sendMessage({ ...payload, type: 'SPIRIT_RESPONSE', tabId });
+    chrome.runtime.sendMessage({ ...payload, type: 'BROWSERSKY_RESPONSE', tabId });
   }
 
   // Helper: send a progress step to the side panel
   function sendProgress(step, label) {
-    chrome.runtime.sendMessage({ type: 'SPIRIT_PROGRESS', tabId, step, label });
+    chrome.runtime.sendMessage({ type: 'BROWSERSKY_PROGRESS', tabId, step, label });
   }
 
   // Helper: save a message to this tab's conversation history
@@ -372,7 +377,7 @@ async function handleAskSpirit(message) {
   try {
     if (!tabId) {
       chrome.runtime.sendMessage({
-        type: 'SPIRIT_RESPONSE',
+        type: 'BROWSERSKY_RESPONSE',
         error: 'No tab ID provided. Please close and reopen the panel.'
       });
       return;
@@ -398,7 +403,7 @@ async function handleAskSpirit(message) {
           if (screenshot) {
             sendProgress('thinking', 'Thinking...');
             const tab = await chrome.tabs.get(tabId);
-            const aiResponse = await askSpiritAIWithVision(message.question, screenshot, tab.url, tab.title);
+            const aiResponse = await askBrowserskyWithVision(message.question, screenshot, tab.url, tab.title);
             saveMessage('assistant', aiResponse.answer);
             sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
             return;
@@ -426,12 +431,12 @@ async function handleAskSpirit(message) {
 
     // Fall back to screenshot for known JS-heavy apps or if extracted text is too short
     if (useScreenshot) {
-      console.log('Spirit.AI: Insufficient text, falling back to screenshot');
+      console.log('Browsersky: Insufficient text, falling back to screenshot');
       sendProgress('screenshot', 'Taking screenshot...');
       const screenshot = await captureTabScreenshot(tabId);
       if (screenshot) {
         sendProgress('thinking', 'Thinking...');
-        const aiResponse = await askSpiritAIWithVision(
+        const aiResponse = await askBrowserskyWithVision(
           message.question, screenshot, pageContext.url, pageContext.title
         );
         saveMessage('assistant', aiResponse.answer);
@@ -442,20 +447,49 @@ async function handleAskSpirit(message) {
 
     // Call AI provider with text context
     sendProgress('thinking', 'Thinking...');
-    const aiResponse = await askSpiritAI(message.question, pageContext, message.model);
+    const aiResponse = await askBrowsersky(message.question, pageContext, message.model);
     saveMessage('assistant', aiResponse.answer);
     sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
 
   } catch (error) {
-    console.error('Spirit.AI: Error handling ASK_SPIRIT:', error);
+    console.error('Browsersky: Error handling ASK_BROWSERSKY:', error);
     sendResponse({ error: error.message || 'An unexpected error occurred. Please try again.' });
   }
 }
 
+// Listen for messages sent from auth-bridge and settings pages on localhost:3000
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'CLERK_TOKEN' && message.token) {
+    chrome.storage.local.set({ clerkToken: message.token, clerkUser: message.user || {} }, () => {
+      chrome.runtime.sendMessage({ type: 'CLERK_TOKEN_RECEIVED' }).catch(() => {});
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.type === 'SIGN_OUT') {
+    chrome.storage.local.remove(['clerkToken', 'clerkUser'], () => {
+      chrome.runtime.sendMessage({ type: 'SIGNED_OUT' }).catch(() => {});
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.type === 'CLEAR_ALL_DATA') {
+    Object.keys(conversations).forEach(k => delete conversations[k]);
+    chrome.storage.session.get(null, (items) => {
+      const ctxKeys = Object.keys(items).filter(k => k.startsWith('ctx_'));
+      if (ctxKeys.length) chrome.storage.session.remove(ctxKeys);
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+});
+
 // Listen for messages from side panel
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'ASK_SPIRIT') {
-    handleAskSpirit(message);
+  if (message.type === 'ASK_BROWSERSKY') {
+    handleAskBrowsersky(message);
   } else if (message.type === 'GET_CONVERSATION') {
     sendResponse({ conversation: conversations[message.tabId] || [] });
   } else if (message.type === 'CLEAR_CONVERSATION') {
@@ -471,5 +505,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.session.remove(`ctx_${tabId}`);
 });
 
-console.log('Spirit.AI service worker loaded');
+console.log('Browsersky service worker loaded');
 
