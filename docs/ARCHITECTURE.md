@@ -1,8 +1,8 @@
-# Spirit.AI Architecture Documentation
+# Browsersky Architecture Documentation
 
 ## Overview
 
-Spirit.AI is a Chrome Manifest V3 browser extension that provides AI-powered page analysis through a side panel interface. The system consists of four main components:
+Browsersky is a Chrome Manifest V3 browser extension that provides AI-powered page analysis through a side panel interface. The system consists of four main components:
 
 1. **Side Panel UI** - User interface for chat interaction
 2. **Service Worker** - Background orchestrator for messaging and AI calls
@@ -65,8 +65,8 @@ Spirit.AI is a Chrome Manifest V3 browser extension that provides AI-powered pag
 - Error banner with dismiss functionality
 
 **Message Flow**:
-- User types question → Sends `ASK_SPIRIT` message to service worker
-- Receives `SPIRIT_RESPONSE` message from service worker
+- User types question → Sends `ASK_BROWSERSKY` message to service worker
+- Receives `BROWSERSKY_RESPONSE` message from service worker
 - Displays answer or error in UI
 
 ### 2. Service Worker (`service_worker.js`)
@@ -85,11 +85,11 @@ Spirit.AI is a Chrome Manifest V3 browser extension that provides AI-powered pag
 - `getActiveTab()` - Gets currently active tab
 - `isRestrictedPage(url)` - Checks if page is restricted
 - `getPageContext(tabId)` - Extracts context from content script
-- `askSpiritAI(question, pageContext)` - Calls backend API
-- `handleAskSpirit()` - Main message handler
+- `askBrowsersky(question, pageContext)` - Calls backend API
+- `handleAskBrowsersky()` - Main message handler
 
 **Message Types Handled**:
-- `ASK_SPIRIT` - From side panel, initiates AI request
+- `ASK_BROWSERSKY` - From side panel, initiates AI request
 - `GET_PAGE_CONTEXT` - To content script, requests page data
 
 **Error Handling**:
@@ -172,7 +172,7 @@ Spirit.AI is a Chrome Manifest V3 browser extension that provides AI-powered pag
 
 **System Prompt**:
 ```
-You are Spirit.AI, a browser-based assistant.
+You are Browsersky, a browser-based assistant.
 Answer the user's question using only the provided webpage content (title, URL, and extracted text).
 If the webpage content does not contain the answer, say so explicitly.
 Be concise and accurate. Do not invent details.
@@ -180,12 +180,12 @@ Be concise and accurate. Do not invent details.
 
 ## Message Schema
 
-### ASK_SPIRIT
+### ASK_BROWSERSKY
 **Direction**: Side Panel → Service Worker
 
 ```javascript
 {
-  type: 'ASK_SPIRIT',
+  type: 'ASK_BROWSERSKY',
   question: string
 }
 ```
@@ -219,12 +219,12 @@ Be concise and accurate. Do not invent details.
 }
 ```
 
-### SPIRIT_RESPONSE
+### BROWSERSKY_RESPONSE
 **Direction**: Service Worker → Side Panel
 
 ```javascript
 {
-  type: 'SPIRIT_RESPONSE',
+  type: 'BROWSERSKY_RESPONSE',
   answer?: string,
   error?: string,
   meta?: {
@@ -239,15 +239,15 @@ Be concise and accurate. Do not invent details.
 ### Golden Path (Successful Request)
 
 1. User types question in side panel
-2. Side panel sends `ASK_SPIRIT` to service worker
+2. Side panel sends `ASK_BROWSERSKY` to service worker
 3. Service worker gets active tab
 4. Service worker sends `GET_PAGE_CONTEXT` to content script
 5. Content script extracts context and returns it
-6. Service worker calls `askSpiritAI()` which makes HTTP request to backend
+6. Service worker calls `askBrowsersky()` which makes HTTP request to backend
 7. Backend formats prompts and calls OpenAI API
 8. OpenAI returns response
 9. Backend returns formatted response to service worker
-10. Service worker sends `SPIRIT_RESPONSE` to side panel
+10. Service worker sends `BROWSERSKY_RESPONSE` to side panel
 11. Side panel displays answer to user
 
 ### Error Flows

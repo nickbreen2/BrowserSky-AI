@@ -1,7 +1,7 @@
 {
-  "name": "spirit-ai-backend",
+  "name": "browsersky-backend",
   "version": "1.0.0",
-  "description": "Backend proxy server for Spirit.AI extension",
+  "description": "Backend proxy server for Browsersky extension",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "dev": "node --watch server.js"
   },
   "keywords": [
-    "spirit-ai",
+    "browsersky",
     "openai",
     "proxy"
   ],
@@ -17,6 +17,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@clerk/backend": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

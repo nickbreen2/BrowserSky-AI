@@ -1,28 +1,83 @@
-// Spirit.AI Side Panel Logic
+// Browsersky Side Panel Logic
 
 const MODELS = [
-  { id: 'gpt-4o',                    name: 'GPT-4o',        desc: 'Most capable OpenAI model',  logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Reasoning', 'Coding', 'Writing'],                credits: 10, pro: true  },
-  { id: 'gpt-4o-mini',               name: 'GPT-4o mini',   desc: 'Faster & lighter',            logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Writing', 'Speed'],                              credits: 2,  pro: false },
-  { id: 'claude-sonnet-4-6',         name: 'Claude Sonnet', desc: 'Smart & efficient',           logo: 'icons/claude.svg',         categories: ['Reasoning', 'Coding', 'Writing', 'Large Context'], credits: 8,  pro: true  },
-  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku',  desc: 'Fastest Claude',              logo: 'icons/claude.svg',         categories: ['Speed'],                                          credits: 1,  pro: false },
-  { id: 'grok-3',                    name: 'Grok 3',        desc: "xAI's most capable",          logo: 'icons/grok.svg',           categories: ['Reasoning', 'Coding', 'Writing'],                credits: 8,  pro: true  },
-  { id: 'grok-3-mini',               name: 'Grok 3 Mini',   desc: 'Fast & efficient',            logo: 'icons/grok.svg',           categories: ['Speed'],                                          credits: 2,  pro: false },
-  { id: 'MiniMax-Text-01',           name: 'MiniMax',       desc: '1M context window',           logo: 'icons/minimax-color.svg',  categories: ['Large Context'],                                 credits: 3,  pro: false },
+  { id: 'gpt-4o',                    name: 'GPT-4o',        desc: 'Most capable OpenAI model',  logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Reasoning', 'Coding', 'Writing'],                credits: 6  },
+  { id: 'gpt-4o-mini',               name: 'GPT-4o mini',   desc: 'Faster & lighter',            logo: 'icons/ChatGPT_Logo_0.svg', categories: ['Writing', 'Speed'],                              credits: 1  },
+  { id: 'claude-sonnet-4-6',         name: 'Claude Sonnet', desc: 'Smart & efficient',           logo: 'icons/claude.svg',         categories: ['Reasoning', 'Coding', 'Writing', 'Large Context'], credits: 8  },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku',  desc: 'Fastest Claude',              logo: 'icons/claude.svg',         categories: ['Speed'],                                          credits: 3  },
+  { id: 'grok-3',                    name: 'Grok 3',        desc: "xAI's most capable",          logo: 'icons/grok.svg',           categories: ['Reasoning', 'Coding', 'Writing'],                credits: 8  },
+  { id: 'grok-3-mini',               name: 'Grok 3 Mini',   desc: 'Fast & efficient',            logo: 'icons/grok.svg',           categories: ['Speed'],                                          credits: 1  },
+  { id: 'MiniMax-Text-01',           name: 'MiniMax',       desc: '1M context window',           logo: 'icons/minimax-color.svg',  categories: ['Large Context'],                                 credits: 1  },
 ];
+
+const FREE_DAILY_CREDITS  = 50;
+const PRO_MONTHLY_CREDITS = 2000;
+
+async function getCreditState() {
+  const { creditBalance, creditResetAt, userTier = 'free' } =
+    await chrome.storage.local.get(['creditBalance', 'creditResetAt', 'userTier']);
+
+  const now = Date.now();
+  if (!creditResetAt || now >= creditResetAt) {
+    // Reset period has elapsed — issue a fresh batch
+    const balance = userTier === 'pro' ? PRO_MONTHLY_CREDITS : FREE_DAILY_CREDITS;
+    const resetIn = userTier === 'pro'
+      ? 30 * 24 * 60 * 60 * 1000   // 30 days
+      : 24 * 60 * 60 * 1000;        // 24 hours
+    const nextReset = now + resetIn;
+    await chrome.storage.local.set({ creditBalance: balance, creditResetAt: nextReset });
+    return { balance, resetAt: nextReset, userTier };
+  }
+
+  return { balance: creditBalance ?? FREE_DAILY_CREDITS, resetAt: creditResetAt, userTier };
+}
+
+async function deductCredits(amount) {
+  const { creditBalance = 0 } = await chrome.storage.local.get('creditBalance');
+  await chrome.storage.local.set({ creditBalance: Math.max(0, creditBalance - amount) });
+}
 const MODEL_CATEGORIES = ['All', 'Reasoning', 'Coding', 'Writing', 'Speed', 'Large Context'];
 
-class SpiritAIPanel {
+const AVATAR_COLORS = [
+  '#1a73e8', '#ea4335', '#34a853', '#fa7b17',
+  '#9c27b0', '#00897b', '#e91e63', '#3949ab',
+  '#039be5', '#f4511e', '#0b8043', '#8e24aa',
+];
+
+function getAvatarColor(str) {
+  if (!str) return AVATAR_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+class BrowserskyPanel {
   constructor() {
     this.messages = [];
     this.isLoading = false;
     this.loadingProgressTimeout = null;
     this.tabId = null;
     this.pendingPlan = null; // { steps, domain, originalQuestion }
+    this.pendingQuestion = null; // preserved across auth errors for auto-retry
+    this.awaitingAuthRetry = false; // true only after an actual auth error, not silent refreshes
     this.selectedModel = 'MiniMax-Text-01';
+    this.tabUrl   = '';
+    this.tabTitle = '';
+    this.clerkUser = null;
     this.init();
   }
 
   async init() {
+    // Auth gate — check for Clerk token before showing chat UI
+    const { clerkToken, clerkUser } = await chrome.storage.local.get(['clerkToken', 'clerkUser']);
+    if (!clerkToken) {
+      this.showAuthGate();
+      return;
+    }
+    this.clerkUser = clerkUser || null;
+
     this.messageInput = document.getElementById('messageInput');
     this.sendButton = document.getElementById('sendButton');
     this.messagesContainer = document.getElementById('messagesContainer');
@@ -43,10 +98,13 @@ class SpiritAIPanel {
 
     // Capture the tab this panel belongs to
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    this.tabId = tab?.id ?? null;
+    this.tabId  = tab?.id  ?? null;
+    this.tabUrl   = tab?.url   ?? '';
+    this.tabTitle = tab?.title ?? '';
     if (tab) this.updatePageIndicator(tab);
     if (tab) this.showSuggestions(tab);
 
+    this.renderProfileAvatar();
     this.setupEventListeners();
     this.setupMessageListener();
     this.updateSendButtonState();
@@ -93,12 +151,18 @@ class SpiritAIPanel {
       this.renderModelPicker();
     });
 
+    // Profile/settings button
+    const profileBtn = document.getElementById('profileBtn');
+    if (profileBtn) {
+      profileBtn.addEventListener('click', () => this.renderSettingsSheet());
+    }
+
     // Clear chat
     this.clearChatButton.addEventListener('click', async () => {
       this.messages = [];
       this.pendingPlan = null;
       this.dismissPlanSheet();
-      this.messagesContainer.innerHTML = '<div class="welcome-message"><img src="icons/BirdBot.svg" alt="BirdBot" class="welcome-logo"><p>Ask your BirdBot anything about this page</p><div class="suggestion-chips" id="suggestionChips"></div></div>';
+      this.messagesContainer.innerHTML = '<div class="welcome-message"><img src="icons/Browsersky-full-logo.svg" alt="Browsersky" class="welcome-logo"><p>Ask Browsersky anything about this page</p><div class="suggestion-chips" id="suggestionChips"></div></div>';
       this.suggestionChips = document.getElementById('suggestionChips');
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab) this.showSuggestions(tab);
@@ -109,7 +173,7 @@ class SpiritAIPanel {
 
     // Plan keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.dismissModelPicker();
+      if (e.key === 'Escape') { this.dismissModelPicker(); this.dismissSettingsSheet(); }
       if (!this.pendingPlan) return;
       if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -121,13 +185,193 @@ class SpiritAIPanel {
     });
   }
 
+  renderProfileAvatar() {
+    const avatarEl = document.getElementById('headerAvatar');
+    if (!avatarEl) return;
+    const user = this.clerkUser;
+    const imageUrl = user?.imageUrl || user?.profileImageUrl;
+    const firstName = user?.firstName || '';
+    const email = user?.emailAddresses?.[0]?.emailAddress || user?.email || '';
+    const initial = (firstName[0] || email[0] || '?').toUpperCase();
+    const color = getAvatarColor(firstName || email);
+    avatarEl.style.background = color;
+    if (imageUrl) {
+      avatarEl.innerHTML = `<img src="${imageUrl}" alt="Profile" onerror="this.parentElement.style.background='${color}';this.parentElement.innerHTML='<span>${initial}</span>'">`;
+    } else {
+      avatarEl.innerHTML = `<span>${initial}</span>`;
+    }
+  }
+
+  dismissSettingsSheet() {
+    document.getElementById('settingsSheet')?.remove();
+    document.getElementById('settingsSheetBackdrop')?.remove();
+  }
+
+  renderSettingsSheet() {
+    this.dismissSettingsSheet();
+
+    const user = this.clerkUser;
+    const imageUrl = user?.imageUrl || user?.profileImageUrl;
+    const firstName = user?.firstName || '';
+    const lastName = user?.lastName || '';
+    const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'User';
+    const email = user?.emailAddresses?.[0]?.emailAddress || user?.email || '';
+    const initial = (firstName[0] || email[0] || '?').toUpperCase();
+    const color = getAvatarColor(firstName || email);
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'settingsSheetBackdrop';
+    backdrop.addEventListener('click', () => this.dismissSettingsSheet());
+    document.body.appendChild(backdrop);
+
+    const avatarHtml = imageUrl
+      ? `<div class="settings-avatar-lg" style="background:${color}"><img src="${imageUrl}" alt="Profile" onerror="this.parentElement.innerHTML='<span>${initial}</span>'"></div>`
+      : `<div class="settings-avatar-lg" style="background:${color}"><span>${initial}</span></div>`;
+
+    const sheet = document.createElement('div');
+    sheet.id = 'settingsSheet';
+    sheet.className = 'settings-sheet';
+    sheet.innerHTML = `
+      <div class="settings-email-line">${email}</div>
+      <div class="settings-user-card">
+        ${avatarHtml}
+        <div class="settings-user-info">
+          <div class="settings-user-name">${fullName}</div>
+          <div class="settings-plan-inline">Free</div>
+        </div>
+      </div>
+      <div class="settings-usage-card">
+        <div class="settings-credits-main">
+          <img src="icons/LLM token.svg" class="settings-credits-icon" alt="">
+          <span class="settings-credits-value" id="settingsCreditsValue">—</span>
+          <span class="settings-credits-label">credits left</span>
+        </div>
+        <div class="settings-credits-sub" id="settingsCreditsReset">Renews in —</div>
+        <button class="settings-upgrade-btn" id="settingsUpgradeBtn">Upgrade to Pro</button>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-actions">
+        <button class="settings-action-item" id="settingsSupportBtn">
+          <span class="settings-action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </span>
+          Talk to support
+        </button>
+        <button class="settings-action-item" id="settingsFeedbackBtn">
+          <span class="settings-action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+          </span>
+          Share feedback
+        </button>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-actions">
+        <button class="settings-action-item" id="settingsPageBtn">
+          <span class="settings-action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </span>
+          Go to settings
+        </button>
+        <button class="settings-action-item danger" id="settingsSignOutBtn">
+          <span class="settings-action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </span>
+          Sign out
+        </button>
+      </div>`;
+
+    document.body.appendChild(sheet);
+
+    getCreditState().then(({ balance, resetAt, userTier }) => {
+      const el = document.getElementById('settingsCreditsValue');
+      const subEl = document.getElementById('settingsCreditsReset');
+      if (el) el.textContent = balance.toLocaleString();
+      if (subEl) {
+        const msLeft = resetAt - Date.now();
+        const hLeft = Math.ceil(msLeft / (1000 * 60 * 60));
+        const label = userTier === 'pro'
+          ? `${Math.ceil(hLeft / 24)}d · Pro plan`
+          : `${hLeft}h · Free plan`;
+        subEl.textContent = `Renews in ${label}`;
+      }
+    });
+
+    document.getElementById('settingsUpgradeBtn').addEventListener('click', () => {
+      chrome.tabs.create({ url: `http://localhost:3000/upgrade?extId=${chrome.runtime.id}` });
+      this.dismissSettingsSheet();
+    });
+
+    document.getElementById('settingsSupportBtn').addEventListener('click', () => {
+      chrome.tabs.create({ url: `http://localhost:3000/support?extId=${chrome.runtime.id}` });
+      this.dismissSettingsSheet();
+    });
+
+    document.getElementById('settingsFeedbackBtn').addEventListener('click', () => {
+      chrome.tabs.create({ url: `http://localhost:3000/feedback?extId=${chrome.runtime.id}` });
+      this.dismissSettingsSheet();
+    });
+
+    document.getElementById('settingsPageBtn').addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+      this.dismissSettingsSheet();
+    });
+
+    document.getElementById('settingsSignOutBtn').addEventListener('click', async () => {
+      await chrome.storage.local.remove(['clerkToken', 'clerkUser']);
+      this.dismissSettingsSheet();
+      location.reload();
+    });
+  }
+
+  showAuthGate() {
+    document.body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px;font-family:sans-serif;padding:24px;box-sizing:border-box;text-align:center;">
+        <img src="icons/Browsersky-full-logo.svg" alt="Browsersky" style="width:96px;height:96px;">
+        <h2 style="margin:0;font-size:18px;color:#111;">Sign in to Browsersky AI</h2>
+        <p style="margin:0;color:#6b7280;font-size:14px;">Connect your account to get started</p>
+        <button id="signInBtn" style="margin-top:8px;width:100%;max-width:220px;padding:10px 24px;background:#111827;color:white;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;">
+          Sign In
+        </button>
+      </div>`;
+
+    const extId = chrome.runtime.id;
+    document.getElementById('signInBtn').addEventListener('click', () => {
+      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${extId}&mode=sign-in` });
+    });
+    // Listen for token arriving from service worker after sign-in
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'CLERK_TOKEN_RECEIVED') {
+        // Re-initialize the panel now that we have a token
+        document.body.innerHTML = '';
+        location.reload();
+      }
+    });
+  }
+
   setupMessageListener() {
     // Listen for responses from service worker — only handle messages for this tab
     chrome.runtime.onMessage.addListener((message) => {
-      if (message.type === 'SPIRIT_RESPONSE' && message.tabId === this.tabId) {
-        this.handleSpiritResponse(message);
-      } else if (message.type === 'SPIRIT_PROGRESS' && message.tabId === this.tabId) {
+      if (message.type === 'BROWSERSKY_RESPONSE' && message.tabId === this.tabId) {
+        this.handleBrowserskyResponse(message);
+      } else if (message.type === 'BROWSERSKY_PROGRESS' && message.tabId === this.tabId) {
         this.appendProgressStep(message.step, message.label);
+      } else if (message.type === 'SIGNED_OUT') {
+        location.reload();
+      } else if (message.type === 'CLERK_TOKEN_RECEIVED') {
+        // Only auto-retry if an actual auth error was shown — not routine silent refreshes
+        if (this.pendingQuestion && this.awaitingAuthRetry) {
+          const q = this.pendingQuestion;
+          this.pendingQuestion = null;
+          this.awaitingAuthRetry = false;
+          this.hideError();
+          this.setLoading(true, q);
+          chrome.runtime.sendMessage({
+            type: 'ASK_BROWSERSKY',
+            question: q,
+            tabId: this.tabId,
+            model: this.selectedModel
+          });
+        }
       }
     });
 
@@ -147,16 +391,28 @@ class SpiritAIPanel {
     const question = this.messageInput.value.trim();
     if (!question || this.isLoading) return;
 
+    // Credit check
+    const model = MODELS.find(m => m.id === this.selectedModel);
+    const cost = model?.credits ?? 1;
+    const { balance } = await getCreditState();
+    if (balance < cost) {
+      this.showError(`Not enough credits. This model costs ${cost} credit${cost !== 1 ? 's' : ''} and you have ${balance} remaining. Upgrade to Pro for more.`);
+      return;
+    }
+
+    // Preserve question for auto-retry after token refresh
+    this.pendingQuestion = question;
+
     // Add user message to UI
     this.addMessage('user', question);
-    
+
     // Clear input
     this.messageInput.value = '';
     this.messageInput.style.height = 'auto';
     this.updateSendButtonState();
 
-    // Show loading state
-    this.setLoading(true);
+    // Show loading state with contextual title
+    this.setLoading(true, question);
 
     // Hide any previous errors
     this.hideError();
@@ -164,7 +420,7 @@ class SpiritAIPanel {
     try {
       // Send message to service worker
       chrome.runtime.sendMessage({
-        type: 'ASK_SPIRIT',
+        type: 'ASK_BROWSERSKY',
         question: question,
         tabId: this.tabId,
         model: this.selectedModel
@@ -176,16 +432,34 @@ class SpiritAIPanel {
     }
   }
 
-  handleSpiritResponse(message) {
+  handleBrowserskyResponse(message) {
     this.setLoading(false);
 
     if (message.error) {
-      this.showError(message.error);
+      const isAuthError = /unauthorized|invalid.*token|expired.*token|token.*expired/i.test(message.error);
+      if (isAuthError) {
+        // pendingQuestion is kept so setupMessageListener can auto-retry after sign-in
+        this.awaitingAuthRetry = true;
+        this.showAuthError();
+      } else {
+        this.pendingQuestion = null;
+        this.awaitingAuthRetry = false;
+        this.showError(message.error);
+      }
     } else if (message.plan) {
+      this.pendingQuestion = null;
+      this.awaitingAuthRetry = false;
       this.pendingPlan = message.plan;
       this.renderPlanCard(message.plan);
     } else if (message.answer) {
-      this.addMessage('assistant', message.answer);
+      this.pendingQuestion = null;
+      this.awaitingAuthRetry = false;
+      this.addMessage('assistant', message.answer, new Date(), message.highlights || []);
+      // Deduct credits
+      const modelId = message.meta?.model || this.selectedModel;
+      const model = MODELS.find(m => m.id === modelId);
+      const cost = model?.credits ?? 1;
+      deductCredits(cost);
     }
   }
 
@@ -328,13 +602,14 @@ class SpiritAIPanel {
 
     filtered.forEach(model => {
       const card = document.createElement('button');
-      card.className = 'model-picker-card' + (model.id === this.selectedModel ? ' active' : '');
-
       const isSelected = model.id === this.selectedModel;
+      card.className = 'model-picker-card' + (isSelected ? ' active' : '');
+
       card.innerHTML = `
         <div class="model-picker-card-top">
           <img class="model-picker-card-logo" src="${model.logo}" alt="${model.name}">
           <div class="model-picker-card-indicators">
+            <span class="model-picker-credit-cost"><img src="icons/LLM token.svg" class="model-picker-credit-icon" alt="">${model.credits}</span>
             ${isSelected ? '<span class="model-picker-selected-dot"></span>' : ''}
           </div>
         </div>
@@ -368,7 +643,7 @@ class SpiritAIPanel {
     // Header
     const header = document.createElement('div');
     header.className = 'plan-card-header';
-    header.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span>BirdBot's plan</span>`;
+    header.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span>Browsersky's plan</span>`;
 
     // Sites section
     const sites = document.createElement('div');
@@ -399,7 +674,7 @@ class SpiritAIPanel {
     // Footer
     const footer = document.createElement('p');
     footer.className = 'plan-card-footer';
-    footer.textContent = "BirdBot AI will only use the sites listed. You'll be asked before accessing anything else.";
+    footer.textContent = "Browsersky AI will only use the sites listed. You'll be asked before accessing anything else.";
 
     sheet.appendChild(header);
     sheet.appendChild(sites);
@@ -417,11 +692,11 @@ class SpiritAIPanel {
     this.pendingPlan = null;
 
     this.dismissPlanSheet();
-    this.setLoading(true);
+    this.setLoading(true, originalQuestion);
     this.hideError();
 
     chrome.runtime.sendMessage({
-      type: 'ASK_SPIRIT',
+      type: 'ASK_BROWSERSKY',
       question: originalQuestion,
       tabId: this.tabId,
       approved: true,
@@ -456,7 +731,66 @@ class SpiritAIPanel {
     }
   }
 
-  addMessage(role, content, timestamp = new Date()) {
+  renderMarkdown(text) {
+    // Escape HTML to prevent XSS
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Bold + italic, bold, italic
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Horizontal rule
+    html = html.replace(/^---$/gm, '<hr>');
+
+    // Markdown links [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // Auto-link full URLs (https:// or http://) not already inside an <a>
+    html = html.replace(/(?<!href=")https?:\/\/[^\s<>"')]+/g, url =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+
+    // Auto-link bare domains like polishify.app, github.com/foo, etc.
+    // (?![a-zA-Z0-9]) ensures the TLD isn't followed by more letters (e.g. .config, .mjs)
+    html = html.replace(/(?<!["'=/\w])([a-zA-Z0-9][a-zA-Z0-9-]*\.(?:app|com|io|org|net|dev|ai|co|ly|me|to|gg|so|sh|xyz|site|tech|info)(?![a-zA-Z0-9])(?:\/[^\s<>"',]*)?)/g,
+      (_match, domain) => `<a href="https://${domain}" target="_blank" rel="noopener noreferrer">${domain}</a>`);
+
+    // Lists — collect consecutive list lines into ul/ol
+    html = html.replace(/((?:^[*\-] .+\n?)+)/gm, (block) => {
+      const items = block.trim().split('\n').map(l => `<li>${l.replace(/^[*\-] /, '')}</li>`).join('');
+      return `<ul>${items}</ul>`;
+    });
+    html = html.replace(/((?:^\d+\. .+\n?)+)/gm, (block) => {
+      const items = block.trim().split('\n').map(l => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('');
+      return `<ol>${items}</ol>`;
+    });
+
+    // Paragraphs — double newline becomes paragraph break
+    html = html
+      .split(/\n{2,}/)
+      .map(block => {
+        const trimmed = block.trim();
+        if (!trimmed) return '';
+        if (/^<(h[1-3]|ul|ol|hr)/.test(trimmed)) return trimmed;
+        return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+      })
+      .join('');
+
+    return html;
+  }
+
+  addMessage(role, content, timestamp = new Date(), highlights = []) {
     const message = { role, content, timestamp };
     this.messages.push(message);
 
@@ -472,7 +806,22 @@ class SpiritAIPanel {
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    bubble.textContent = content;
+    if (role === 'assistant') {
+      bubble.innerHTML = this.renderMarkdown(content);
+      if (highlights.length > 0) {
+        const chipsRow = document.createElement('div');
+        chipsRow.className = 'highlight-chips';
+        highlights.forEach(phrase => {
+          const chip = document.createElement('span');
+          chip.className = 'highlight-chip';
+          chip.textContent = phrase;
+          chipsRow.appendChild(chip);
+        });
+        bubble.appendChild(chipsRow);
+      }
+    } else {
+      bubble.textContent = content;
+    }
 
     messageDiv.appendChild(bubble);
 
@@ -523,17 +872,33 @@ class SpiritAIPanel {
     this.scrollToBottom();
   }
 
-  setLoading(loading) {
+  getContextualTitle(question) {
+    const q = (question || '').toLowerCase();
+    if (/summar|overview|brief|tldr/.test(q))           return 'Summarizing...';
+    if (/translat/.test(q))                              return 'Translating...';
+    if (/compar/.test(q))                                return 'Comparing...';
+    if (/explain|describe/.test(q))                      return 'Analyzing content...';
+    if (/who (is|are|wrote|made|created|built)/.test(q)) return 'Looking up the author...';
+    if (/price|cost|how much/.test(q))                   return 'Finding prices...';
+    if (/when|what (year|date|time)/.test(q))            return 'Checking dates...';
+    if (/list|find all|every/.test(q))                   return 'Gathering information...';
+    if (/link|url/.test(q))                              return 'Finding links...';
+    if (/name|title|called/.test(q))                     return 'Looking up the name...';
+    if (/review|rating|opinion/.test(q))                 return 'Reading the reviews...';
+    if (/how (do|does|can|to)/.test(q))                  return 'Figuring out how...';
+    if (/why/.test(q))                                   return 'Looking into why...';
+    if (/what/.test(q))                                  return 'Looking that up...';
+    if (/who/.test(q))                                   return 'Finding out who...';
+    if (/where/.test(q))                                 return 'Locating that...';
+    return 'Working on it...';
+  }
+
+  setLoading(loading, question = null) {
     this.isLoading = loading;
     this.updateSendButtonState();
 
     if (loading) {
-      const openingPhrases = [
-        'On it...', 'Let me check...', 'Looking into that...', 'Give me a second...',
-        'Digging in...', 'On the case...', 'Figuring that out...', 'Let me look at that...',
-        'Working on it...', 'Thinking through this...',
-      ];
-      const titleText = openingPhrases[Math.floor(Math.random() * openingPhrases.length)];
+      const titleText = question ? this.getContextualTitle(question) : 'Working on it...';
 
       const typingEl = document.createElement('div');
       typingEl.id = 'typingIndicator';
@@ -542,30 +907,37 @@ class SpiritAIPanel {
         <div class="progress-container">
           <div class="progress-header">
             <div class="typing-dots"><span></span><span></span><span></span></div>
-            <span class="progress-title">${titleText}</span>
-          </div>
-          <div class="progress-steps" id="progressSteps">
-            <div class="progress-timeline"></div>
+            <span class="progress-title"></span>
           </div>
         </div>`;
       this.messagesContainer.appendChild(typingEl);
       this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
-      this.loadingProgressTimeout = setTimeout(() => {
-        const stepsEl = document.getElementById('progressSteps');
-        if (stepsEl && stepsEl.querySelectorAll('.progress-step').length === 0) {
-          const row = document.createElement('div');
-          row.className = 'progress-step';
-          row.innerHTML = '<span class="progress-step-icon">⏳</span><span class="progress-step-label">Taking longer than expected...</span>';
-          stepsEl.appendChild(row);
-        }
-      }, 10000);
+      // Typewriter effect — types the title character by character, replays every 3s
+      const titleEl = typingEl.querySelector('.progress-title');
+      const startTypewriter = () => {
+        titleEl.textContent = '';
+        let i = 0;
+        const tick = () => {
+          if (i < titleText.length) {
+            titleEl.textContent += titleText[i++];
+            this.typewriterTimeout = setTimeout(tick, 55);
+          }
+        };
+        tick();
+      };
+      startTypewriter();
+      this.loadingProgressTimeout = setInterval(startTypewriter, 3000);
     } else {
       const typingEl = document.getElementById('typingIndicator');
       if (typingEl) typingEl.remove();
       if (this.loadingProgressTimeout) {
-        clearTimeout(this.loadingProgressTimeout);
+        clearInterval(this.loadingProgressTimeout);
         this.loadingProgressTimeout = null;
+      }
+      if (this.typewriterTimeout) {
+        clearTimeout(this.typewriterTimeout);
+        this.typewriterTimeout = null;
       }
     }
   }
@@ -573,18 +945,18 @@ class SpiritAIPanel {
   appendProgressStep(step, label) {
     const stepsEl = document.getElementById('progressSteps');
     if (!stepsEl) return;
+
+    const stepIcons = {
+      page_read:  '📄',
+      screenshot: '📸',
+      thinking:   '💡',
+    };
+    const icon = stepIcons[step] || '⚙️';
+
     const row = document.createElement('div');
     row.className = 'progress-step';
-    row.innerHTML = `<span class="progress-step-icon">🔧</span><span class="progress-step-label">${label}</span>`;
+    row.innerHTML = `<span class="progress-step-icon">${icon}</span><span class="progress-step-label">${label}</span>`;
     stepsEl.appendChild(row);
-
-    const stepTitles = {
-      page_read:  'Reading the page...',
-      screenshot: 'Taking a screenshot...',
-      thinking:   'Thinking it through...',
-    };
-    const titleEl = document.querySelector('.progress-title');
-    if (titleEl && stepTitles[step]) titleEl.textContent = stepTitles[step];
 
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
   }
@@ -592,6 +964,15 @@ class SpiritAIPanel {
   showError(message) {
     this.errorMessage.textContent = message;
     this.errorBanner.style.display = 'flex';
+  }
+
+  showAuthError() {
+    const hasQuestion = !!this.pendingQuestion;
+    this.errorMessage.innerHTML = `Session expired. <a id="reSignInLink" style="color:inherit;font-weight:600;text-decoration:underline;cursor:pointer;">Sign in again</a>${hasQuestion ? ' — your message will send automatically.' : ''}`;
+    this.errorBanner.style.display = 'flex';
+    document.getElementById('reSignInLink')?.addEventListener('click', () => {
+      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in` });
+    });
   }
 
   hideError() {
@@ -709,9 +1090,9 @@ class SpiritAIPanel {
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    new SpiritAIPanel();
+    new BrowserskyPanel();
   });
 } else {
-  new SpiritAIPanel();
+  new BrowserskyPanel();
 }
 

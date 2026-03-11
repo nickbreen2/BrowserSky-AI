@@ -1,12 +1,12 @@
-// Spirit.AI Content Script - Page Context Extractor
+// Browsersky Content Script - Page Context Extractor
 (function() {
   'use strict';
   
   // Prevent duplicate execution
-  if (window.__spiritAIContentScriptLoaded) {
+  if (window.__browserskyContentScriptLoaded) {
     return;
   }
-  window.__spiritAIContentScriptLoaded = true;
+  window.__browserskyContentScriptLoaded = true;
 
   // Configuration
   const MAX_TEXT_LENGTH = 50000; // Configurable max length for extracted text
@@ -42,7 +42,7 @@ function extractVisibleText() {
     
     return text;
   } catch (error) {
-    console.error('Spirit.AI: Error extracting text:', error);
+    console.error('Browsersky: Error extracting text:', error);
     return '';
   }
 }
@@ -75,30 +75,30 @@ function isValidContext(context) {
 }
 
 function injectHighlightStyles() {
-  if (document.getElementById('spirit-ai-highlight-styles')) return;
+  if (document.getElementById('browsersky-highlight-styles')) return;
   const style = document.createElement('style');
-  style.id = 'spirit-ai-highlight-styles';
+  style.id = 'browsersky-highlight-styles';
   style.textContent = `
-    .spirit-ai-highlight {
+    .browsersky-highlight {
       outline: 2px solid #3b82f6 !important;
       box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3) !important;
       border-radius: 4px !important;
       transition: outline 0.3s ease, box-shadow 0.3s ease !important;
-      animation: spiritHighlightPulse 1.8s ease-in-out infinite !important;
+      animation: browserskyHighlightPulse 1.8s ease-in-out infinite !important;
     }
-    @keyframes spiritHighlightPulse {
+    @keyframes browserskyHighlightPulse {
       0%, 100% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3) !important; }
       50%       { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.55), 0 0 16px rgba(59, 130, 246, 0.35) !important; }
     }
-    #spirit-ai-scan-overlay {
+    #browsersky-scan-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
       pointer-events: none;
       box-shadow: inset 0 0 0 3px #3b82f6;
       z-index: 2147483647;
-      animation: spiritScanFade 2.5s ease-in-out forwards;
+      animation: browserksyScanFade 2.5s ease-in-out forwards;
     }
-    @keyframes spiritScanFade {
+    @keyframes browserksyScanFade {
       0%   { opacity: 0; }
       15%  { opacity: 1; }
       80%  { opacity: 1; }
@@ -110,10 +110,10 @@ function injectHighlightStyles() {
 
 function showScanEffect() {
   injectHighlightStyles();
-  const existing = document.getElementById('spirit-ai-scan-overlay');
+  const existing = document.getElementById('browsersky-scan-overlay');
   if (existing) existing.remove();
   const overlay = document.createElement('div');
-  overlay.id = 'spirit-ai-scan-overlay';
+  overlay.id = 'browsersky-scan-overlay';
   document.body.appendChild(overlay);
   setTimeout(() => overlay.remove(), 2600);
 }
@@ -151,17 +151,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({ context });
     } catch (error) {
-      console.error('Spirit.AI: Error getting page context:', error);
+      console.error('Browsersky: Error getting page context:', error);
       sendResponse({
         error: 'EXTRACTION_ERROR',
         message: 'Failed to extract page context. Please try again.'
       });
     }
-  } else if (message.type === 'SPIRIT_SCANNING') {
+  } else if (message.type === 'BROWSERSKY_SCANNING') {
     showScanEffect();
   }
 });
 
   // Log that content script is loaded (for debugging)
-  console.log('Spirit.AI content script loaded');
+  console.log('Browsersky content script loaded');
 })();

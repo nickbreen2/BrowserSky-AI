@@ -1,4 +1,4 @@
-// Spirit.AI Service Worker - Background Orchestrator
+// Browsersky Service Worker - Background Orchestrator
 
 // Per-tab conversation history { [tabId]: [{role, content, timestamp}] }
 const conversations = {};
@@ -24,21 +24,21 @@ chrome.action.onClicked.addListener(async (tab) => {
   chrome.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true });
   chrome.sidePanel.open({ tabId: tab.id });
 
-  // Add the tab to a Spirit.AI tab group for visual clarity
+  // Add the tab to a Browsersky tab group for visual clarity
   try {
-    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: 'BirdBot AI' });
+    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: 'Browsersky AI' });
     if (groups.length > 0) {
       await chrome.tabs.group({ tabIds: [tab.id], groupId: groups[0].id });
     } else {
       const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
-      await chrome.tabGroups.update(groupId, { title: 'BirdBot AI', color: 'purple' });
+      await chrome.tabGroups.update(groupId, { title: 'Browsersky AI', color: 'purple' });
     }
   } catch (e) {
-    console.warn('Spirit.AI: Tab grouping failed:', e);
+    console.warn('Browsersky: Tab grouping failed:', e);
   }
 
-  // Show scan border on the page to signal Spirit.AI is active
-  chrome.tabs.sendMessage(tab.id, { type: 'SPIRIT_SCANNING' }).catch(() => {});
+  // Show scan border on the page to signal Browsersky is active
+  chrome.tabs.sendMessage(tab.id, { type: 'BROWSERSKY_SCANNING' }).catch(() => {});
 
   // Capture page context now, keyed by tab ID
   const contextResult = await getPageContext(tab.id);
@@ -127,14 +127,14 @@ async function getPageContext(tabId) {
     } catch (messageError) {
       // If message fails, try to inject content script
       if (messageError.message && messageError.message.includes('Receiving end does not exist')) {
-        console.log('Spirit.AI: Content script not found, injecting...');
+        console.log('Browsersky: Content script not found, injecting...');
         try {
           // Clear the guard flag if it exists (in case of partial load)
           await chrome.scripting.executeScript({
             target: { tabId },
             func: () => {
-              if (window.__spiritAIContentScriptLoaded) {
-                delete window.__spiritAIContentScriptLoaded;
+              if (window.__browserskyContentScriptLoaded) {
+                delete window.__browserskyContentScriptLoaded;
               }
             }
           });
@@ -153,7 +153,7 @@ async function getPageContext(tabId) {
             type: 'GET_PAGE_CONTEXT'
           });
         } catch (injectError) {
-          console.error('Spirit.AI: Failed to inject content script:', injectError);
+          console.error('Browsersky: Failed to inject content script:', injectError);
           return {
             error: 'INJECTION_ERROR',
             message: 'Failed to load content script. Please refresh the page and try again.'
@@ -177,7 +177,7 @@ async function getPageContext(tabId) {
 
     return { context: response.context };
   } catch (error) {
-    console.error('Spirit.AI: Error getting page context:', error);
+    console.error('Browsersky: Error getting page context:', error);
     
     // Check if it's a restricted page error
     if (error.message && error.message.includes('Cannot access')) {
@@ -208,7 +208,7 @@ async function captureTabScreenshot(tabId) {
     });
     return dataUrl;
   } catch (error) {
-    console.warn('Spirit.AI: Screenshot capture failed:', error);
+    console.warn('Browsersky: Screenshot capture failed:', error);
     return null;
   }
 }
@@ -221,14 +221,89 @@ async function captureTabScreenshot(tabId) {
  * @param {string} title - Page title
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askSpiritAIWithVision(question, screenshotDataUrl, url, title) {
+/**
+ * Returns true if a Clerk JWT token is expired or expiring within 45 seconds.
+ * @param {string} token
+ * @returns {boolean}
+ */
+function isTokenExpired(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return Date.now() >= (payload.exp * 1000) - 45000; // 45s buffer
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Silently refreshes the Clerk token by opening auth-bridge in a background tab.
+ * If the user's Clerk session is still active the page auto-sends a fresh token
+ * and the tab is closed — the user never sees it.
+ * @returns {Promise<string>} The new token
+ */
+function refreshToken() {
+  return new Promise((resolve, reject) => {
+    let tabId = null;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Token refresh timed out'));
+    }, 30000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(onStorageChanged);
+      if (tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+    }
+
+    // Watch for the token being written to storage — works reliably in service workers
+    // (chrome.runtime.sendMessage can't be received by the sender itself)
+    function onStorageChanged(changes, area) {
+      if (area === 'local' && changes.clerkToken?.newValue) {
+        cleanup();
+        resolve(changes.clerkToken.newValue);
+      }
+    }
+
+    chrome.storage.onChanged.addListener(onStorageChanged);
+
+    chrome.tabs.create({
+      url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=refresh`,
+      active: false
+    }).then(tab => {
+      tabId = tab.id;
+    }).catch(err => {
+      cleanup();
+      reject(err);
+    });
+  });
+}
+
+async function getAuthHeaders() {
+  let { clerkToken } = await chrome.storage.local.get('clerkToken');
+
+  if (clerkToken && isTokenExpired(clerkToken)) {
+    try {
+      clerkToken = await refreshToken();
+    } catch (e) {
+      console.warn('Browsersky: Silent token refresh failed:', e.message);
+      // Fall through with expired token — backend will 401, retry logic handles it
+    }
+  }
+
+  return clerkToken
+    ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clerkToken}` }
+    : { 'Content-Type': 'application/json' };
+}
+
+async function askBrowserskyWithVision(question, screenshotDataUrl, url, title) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
 
     const response = await fetch(CONFIG.visionEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         question,
         screenshot: screenshotDataUrl,
@@ -276,7 +351,7 @@ async function classifyQuestion(question, pageContext) {
 
     const response = await fetch(CONFIG.classifyEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ question, pageContext }),
       signal: controller.signal
     });
@@ -298,20 +373,19 @@ async function classifyQuestion(question, pageContext) {
  * @param {Object} pageContext - Page context {title, url, text}
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askSpiritAI(question, pageContext, model) {
+async function askBrowsersky(question, pageContext, model, history = []) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
 
     const response = await fetch(CONFIG.backendEndpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         question,
         pageContext,
-        model: model || CONFIG.defaultModel
+        model: model || CONFIG.defaultModel,
+        history
       }),
       signal: controller.signal
     });
@@ -345,22 +419,22 @@ async function askSpiritAI(question, pageContext, model) {
 }
 
 /**
- * Handles ASK_SPIRIT messages from the side panel
+ * Handles ASK_BROWSERSKY messages from the side panel
  * @param {Object} message - Message from side panel
  * @param {chrome.runtime.MessageSender} sender - Message sender
  * @param {Function} sendResponse - Response callback
  */
-async function handleAskSpirit(message) {
+async function handleAskBrowsersky(message) {
   const tabId = message.tabId;
 
   // Helper: send response tagged with tabId so panels can filter
   function sendResponse(payload) {
-    chrome.runtime.sendMessage({ ...payload, type: 'SPIRIT_RESPONSE', tabId });
+    chrome.runtime.sendMessage({ ...payload, type: 'BROWSERSKY_RESPONSE', tabId });
   }
 
   // Helper: send a progress step to the side panel
   function sendProgress(step, label) {
-    chrome.runtime.sendMessage({ type: 'SPIRIT_PROGRESS', tabId, step, label });
+    chrome.runtime.sendMessage({ type: 'BROWSERSKY_PROGRESS', tabId, step, label });
   }
 
   // Helper: save a message to this tab's conversation history
@@ -372,7 +446,7 @@ async function handleAskSpirit(message) {
   try {
     if (!tabId) {
       chrome.runtime.sendMessage({
-        type: 'SPIRIT_RESPONSE',
+        type: 'BROWSERSKY_RESPONSE',
         error: 'No tab ID provided. Please close and reopen the panel.'
       });
       return;
@@ -382,7 +456,6 @@ async function handleAskSpirit(message) {
     if (!message.approved) {
       saveMessage('user', message.question);
     }
-    sendProgress('page_read', 'Reading page...');
 
     // Use context captured when this tab's panel opened
     const stored = await chrome.storage.session.get(`ctx_${tabId}`);
@@ -398,9 +471,9 @@ async function handleAskSpirit(message) {
           if (screenshot) {
             sendProgress('thinking', 'Thinking...');
             const tab = await chrome.tabs.get(tabId);
-            const aiResponse = await askSpiritAIWithVision(message.question, screenshot, tab.url, tab.title);
+            const aiResponse = await askBrowserskyWithVision(message.question, screenshot, tab.url, tab.title);
             saveMessage('assistant', aiResponse.answer);
-            sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+            sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
             return;
           }
         }
@@ -410,52 +483,103 @@ async function handleAskSpirit(message) {
       pageContext = contextResult.context;
     }
 
-    // Always show a plan approval on first (non-approved) ask
-    if (!message.approved) {
-      const classification = await classifyQuestion(message.question, pageContext);
-      const steps = (Array.isArray(classification.steps) && classification.steps.length > 0)
-        ? classification.steps
-        : ['Read page content', 'Analyze your question', 'Write response'];
-      let domain = pageContext.url;
-      try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
-      sendResponse({ plan: { steps, domain, originalQuestion: message.question } });
-      return;
-    }
+    // TODO: Re-enable plan approval when agent interactions (clicking on page) are added.
+    // if (!message.approved) {
+    //   let domain = pageContext.url;
+    //   try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
+    //   sendResponse({ plan: {
+    //     steps: ['Read page content', 'Analyze your question', 'Write response'],
+    //     domain,
+    //     originalQuestion: message.question
+    //   } });
+    //   return;
+    // }
 
     const useScreenshot = isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength;
 
     // Fall back to screenshot for known JS-heavy apps or if extracted text is too short
     if (useScreenshot) {
-      console.log('Spirit.AI: Insufficient text, falling back to screenshot');
+      console.log('Browsersky: Insufficient text, falling back to screenshot');
       sendProgress('screenshot', 'Taking screenshot...');
       const screenshot = await captureTabScreenshot(tabId);
       if (screenshot) {
         sendProgress('thinking', 'Thinking...');
-        const aiResponse = await askSpiritAIWithVision(
+        const aiResponse = await askBrowserskyWithVision(
           message.question, screenshot, pageContext.url, pageContext.title
         );
         saveMessage('assistant', aiResponse.answer);
-        sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+        sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
         return;
       }
     }
 
     // Call AI provider with text context
     sendProgress('thinking', 'Thinking...');
-    const aiResponse = await askSpiritAI(message.question, pageContext, message.model);
+    const history = (conversations[tabId] || []).slice(0, -1).map(({ role, content }) => ({ role, content }));
+    const aiResponse = await askBrowsersky(message.question, pageContext, message.model, history);
     saveMessage('assistant', aiResponse.answer);
-    sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+    sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
 
   } catch (error) {
-    console.error('Spirit.AI: Error handling ASK_SPIRIT:', error);
+    const isAuthError = /unauthorized|invalid.*token|expired.*token|token.*expired/i.test(error.message);
+
+    // Safety-net retry: if we got a 401 and haven't retried yet, try a fresh token once
+    if (isAuthError && !message._retried) {
+      try {
+        console.log('Browsersky: Auth error — attempting token refresh and retry');
+        await refreshToken();
+        return handleAskBrowsersky({ ...message, _retried: true });
+      } catch {
+        // Refresh failed — session is truly expired, tell the panel
+        sendResponse({ error: 'Unauthorized: Invalid or expired token' });
+        return;
+      }
+    }
+
+    console.error('Browsersky: Error handling ASK_BROWSERSKY:', error);
     sendResponse({ error: error.message || 'An unexpected error occurred. Please try again.' });
   }
 }
 
+// Listen for messages sent from auth-bridge and settings pages on localhost:3000
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'CLERK_TOKEN' && message.token) {
+    chrome.storage.local.set({ clerkToken: message.token, clerkUser: message.user || {} }, () => {
+      chrome.runtime.sendMessage({ type: 'CLERK_TOKEN_RECEIVED' }).catch(() => {});
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.type === 'SIGN_OUT') {
+    chrome.storage.local.remove(['clerkToken', 'clerkUser'], () => {
+      chrome.runtime.sendMessage({ type: 'SIGNED_OUT' }).catch(() => {});
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.type === 'CLOSE_AUTH_TAB') {
+    if (_sender.tab?.id) chrome.tabs.remove(_sender.tab.id).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.type === 'CLEAR_ALL_DATA') {
+    Object.keys(conversations).forEach(k => delete conversations[k]);
+    chrome.storage.session.get(null, (items) => {
+      const ctxKeys = Object.keys(items).filter(k => k.startsWith('ctx_'));
+      if (ctxKeys.length) chrome.storage.session.remove(ctxKeys);
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+});
+
 // Listen for messages from side panel
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'ASK_SPIRIT') {
-    handleAskSpirit(message);
+  if (message.type === 'ASK_BROWSERSKY') {
+    handleAskBrowsersky(message);
   } else if (message.type === 'GET_CONVERSATION') {
     sendResponse({ conversation: conversations[message.tabId] || [] });
   } else if (message.type === 'CLEAR_CONVERSATION') {
@@ -471,5 +595,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.session.remove(`ctx_${tabId}`);
 });
 
-console.log('Spirit.AI service worker loaded');
+console.log('Browsersky service worker loaded');
 
