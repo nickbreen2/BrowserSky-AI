@@ -61,15 +61,47 @@ async function requireAuth(req, res, next) {
 }
 
 // System prompt for Browsersky
-const SYSTEM_PROMPT = `You are Browsersky, a browser-based assistant.
-Answer the user's question using only the provided webpage content (title, URL, and extracted text).
-If the webpage content does not contain the answer, say so explicitly.
-Be concise and accurate. Do not invent details.
+const SYSTEM_PROMPT = `You are Browsersky, a browser-based assistant helping the user understand and explore the current webpage.
+
+Answer using only the provided webpage content (title, URL, and extracted text). Do not invent details not present on the page.
+
+Rules for answering:
+- Always give the actual value when one exists. If the user asks for a URL, name, price, or any specific piece of data — include it directly in the answer. Never just confirm that it exists.
+- Give a direct answer first, then add 1-2 sentences of relevant supporting context to make the answer useful and complete.
+- When something is not found on the page, say clearly what you couldn't find, then share what you do know that's related (e.g. what the page is about, what is available).
+- Use natural, conversational language. Avoid robotic phrases like "The provided content does not explicitly mention..." — instead say "I don't see X on this page" or "This page doesn't include X".
+- Do not answer a question with only "yes" or "no". Always follow up with the relevant detail.
+- If the conversation has prior messages, use them to understand follow-up questions in context. For example, if the user just asked about a URL and then asks "what is it?", they mean the URL.
+
+Formatting rules:
+- For responses covering multiple sections or topics, use emoji-prefixed headers (e.g. "## 🧠 Key Features", "## 🔧 How It Works"). Choose relevant, specific emojis — not generic ones.
+- **Bold** important names, tools, terms, URLs, and key data points.
+- Use bullet points (-) for lists of items. Keep bullets concise.
+- For simple single-topic answers, skip headers — just write a clean paragraph with **bold** on key terms.
+- Do not add headers or bullets when a one-sentence answer is sufficient.
 
 Respond with valid JSON in this exact format:
 {"answer": "your answer here", "highlights": ["phrase 1", "phrase 2"]}
 
-The "highlights" array must contain 2-5 short words or phrases from the page content that you are directly referencing in your answer. Use an empty array if you are not referencing specific content.`;
+The "highlights" array should only be included when the answer is detailed or covers multiple facts (e.g. explaining a feature, listing tools, describing a project). For simple single-fact answers like a name, number, or yes/no, use an empty array. When included, use 2-5 short key terms or phrases directly from the page.`;
+
+/**
+ * Strips markdown code fences (```json ... ```) and parses JSON.
+ * Falls back to { answer: raw, highlights: [] } if parsing fails.
+ */
+function parseAiJson(raw) {
+  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    // Model may have wrapped JSON in extra prose — try to extract the JSON object
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* fall through */ }
+    }
+    return { answer: raw, highlights: [] };
+  }
+}
 
 /**
  * Formats the user prompt with page context and question
@@ -154,7 +186,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   console.log('========================');
   
   try {
-    const { question, pageContext, model } = req.body;
+    const { question, pageContext, model, history } = req.body;
 
     // Validate request
     if (!question || !pageContext) {
@@ -183,6 +215,18 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const userPrompt = formatUserPrompt(question, pageContext);
     console.log('User prompt length:', userPrompt.length);
 
+    // Build messages array with optional conversation history
+    const priorMessages = Array.isArray(history)
+      ? history.map(({ role, content }) => ({ role, content }))
+      : [];
+    const messages = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...priorMessages,
+      { role: 'user', content: userPrompt }
+    ];
+    // Claude uses a separate system param, so omit system from the messages array
+    const claudeMessages = [...priorMessages, { role: 'user', content: userPrompt }];
+
     let answer, highlights, usage, modelUsed = modelToUse;
 
     if (isMiniMax) {
@@ -192,18 +236,12 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       console.log('📞 About to call MiniMax with model:', modelToUse);
       const mmResponse = await minimax.chat.completions.create({
         model: modelToUse,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt }
-        ],
+        messages,
         temperature: 0.7,
         max_tokens: 2000
       });
       console.log('✅ MiniMax response received');
-      const rawContent = mmResponse.choices[0]?.message?.content || '{}';
-      let parsed;
-      try { parsed = JSON.parse(rawContent); }
-      catch { parsed = { answer: rawContent, highlights: [] }; }
+      const parsed = parseAiJson(mmResponse.choices[0]?.message?.content || '{}');
       answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
       highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
       usage = {
@@ -218,19 +256,13 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       console.log('📞 About to call xAI with model:', modelToUse);
       const grokResponse = await xai.chat.completions.create({
         model: modelToUse,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt }
-        ],
+        messages,
         response_format: { type: 'json_object' },
         temperature: 0.7,
         max_tokens: 2000
       });
       console.log('✅ xAI response received');
-      const rawContent = grokResponse.choices[0]?.message?.content || '{}';
-      let parsed;
-      try { parsed = JSON.parse(rawContent); }
-      catch { parsed = { answer: rawContent, highlights: [] }; }
+      const parsed = parseAiJson(grokResponse.choices[0]?.message?.content || '{}');
       answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
       highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
       usage = {
@@ -247,13 +279,10 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         model: modelToUse,
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }]
+        messages: claudeMessages
       });
       console.log('✅ Anthropic response received');
-      const rawContent = claudeResponse.content[0]?.text || '{}';
-      let parsed;
-      try { parsed = JSON.parse(rawContent); }
-      catch { parsed = { answer: rawContent, highlights: [] }; }
+      const parsed = parseAiJson(claudeResponse.content[0]?.text || '{}');
       answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
       highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
       usage = {
@@ -267,10 +296,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         console.log('📞 About to call OpenAI with model:', modelToUse);
         response = await openai.chat.completions.create({
           model: modelToUse,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userPrompt }
-          ],
+          messages,
           response_format: { type: 'json_object' },
           temperature: 0.7,
           max_tokens: 2000
@@ -283,10 +309,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
           modelUsed = fallbackModel;
           response = await openai.chat.completions.create({
             model: fallbackModel,
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: userPrompt }
-            ],
+            messages,
             response_format: { type: 'json_object' },
             temperature: 0.7,
             max_tokens: 2000
@@ -295,10 +318,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
           throw modelError;
         }
       }
-      const rawContent = response.choices[0]?.message?.content || '{}';
-      let parsed;
-      try { parsed = JSON.parse(rawContent); }
-      catch { parsed = { answer: rawContent, highlights: [] }; }
+      const parsed = parseAiJson(response.choices[0]?.message?.content || '{}');
       answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
       highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
       usage = {
@@ -409,14 +429,7 @@ The "highlights" array must contain 2-5 short words or phrases visible in the sc
       max_tokens: 2000
     });
 
-    // Parse structured JSON response
-    const rawContent = response.choices[0]?.message?.content || '{}';
-    let parsed;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch {
-      parsed = { answer: rawContent, highlights: [] };
-    }
+    const parsed = parseAiJson(response.choices[0]?.message?.content || '{}');
     const answer = parsed.answer || 'I apologize, but I couldn\'t generate a response.';
     const highlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
     console.log('✅ Vision response sent');

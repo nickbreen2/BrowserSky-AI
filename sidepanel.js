@@ -60,6 +60,8 @@ class BrowserskyPanel {
     this.loadingProgressTimeout = null;
     this.tabId = null;
     this.pendingPlan = null; // { steps, domain, originalQuestion }
+    this.pendingQuestion = null; // preserved across auth errors for auto-retry
+    this.awaitingAuthRetry = false; // true only after an actual auth error, not silent refreshes
     this.selectedModel = 'MiniMax-Text-01';
     this.tabUrl   = '';
     this.tabTitle = '';
@@ -355,6 +357,21 @@ class BrowserskyPanel {
         this.appendProgressStep(message.step, message.label);
       } else if (message.type === 'SIGNED_OUT') {
         location.reload();
+      } else if (message.type === 'CLERK_TOKEN_RECEIVED') {
+        // Only auto-retry if an actual auth error was shown — not routine silent refreshes
+        if (this.pendingQuestion && this.awaitingAuthRetry) {
+          const q = this.pendingQuestion;
+          this.pendingQuestion = null;
+          this.awaitingAuthRetry = false;
+          this.hideError();
+          this.setLoading(true, q);
+          chrome.runtime.sendMessage({
+            type: 'ASK_BROWSERSKY',
+            question: q,
+            tabId: this.tabId,
+            model: this.selectedModel
+          });
+        }
       }
     });
 
@@ -383,16 +400,19 @@ class BrowserskyPanel {
       return;
     }
 
+    // Preserve question for auto-retry after token refresh
+    this.pendingQuestion = question;
+
     // Add user message to UI
     this.addMessage('user', question);
-    
+
     // Clear input
     this.messageInput.value = '';
     this.messageInput.style.height = 'auto';
     this.updateSendButtonState();
 
-    // Show loading state
-    this.setLoading(true);
+    // Show loading state with contextual title
+    this.setLoading(true, question);
 
     // Hide any previous errors
     this.hideError();
@@ -418,15 +438,23 @@ class BrowserskyPanel {
     if (message.error) {
       const isAuthError = /unauthorized|invalid.*token|expired.*token|token.*expired/i.test(message.error);
       if (isAuthError) {
+        // pendingQuestion is kept so setupMessageListener can auto-retry after sign-in
+        this.awaitingAuthRetry = true;
         this.showAuthError();
       } else {
+        this.pendingQuestion = null;
+        this.awaitingAuthRetry = false;
         this.showError(message.error);
       }
     } else if (message.plan) {
+      this.pendingQuestion = null;
+      this.awaitingAuthRetry = false;
       this.pendingPlan = message.plan;
       this.renderPlanCard(message.plan);
     } else if (message.answer) {
-      this.addMessage('assistant', message.answer);
+      this.pendingQuestion = null;
+      this.awaitingAuthRetry = false;
+      this.addMessage('assistant', message.answer, new Date(), message.highlights || []);
       // Deduct credits
       const modelId = message.meta?.model || this.selectedModel;
       const model = MODELS.find(m => m.id === modelId);
@@ -664,7 +692,7 @@ class BrowserskyPanel {
     this.pendingPlan = null;
 
     this.dismissPlanSheet();
-    this.setLoading(true);
+    this.setLoading(true, originalQuestion);
     this.hideError();
 
     chrome.runtime.sendMessage({
@@ -703,7 +731,66 @@ class BrowserskyPanel {
     }
   }
 
-  addMessage(role, content, timestamp = new Date()) {
+  renderMarkdown(text) {
+    // Escape HTML to prevent XSS
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Bold + italic, bold, italic
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Horizontal rule
+    html = html.replace(/^---$/gm, '<hr>');
+
+    // Markdown links [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // Auto-link full URLs (https:// or http://) not already inside an <a>
+    html = html.replace(/(?<!href=")https?:\/\/[^\s<>"')]+/g, url =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+
+    // Auto-link bare domains like polishify.app, github.com/foo, etc.
+    // (?![a-zA-Z0-9]) ensures the TLD isn't followed by more letters (e.g. .config, .mjs)
+    html = html.replace(/(?<!["'=/\w])([a-zA-Z0-9][a-zA-Z0-9-]*\.(?:app|com|io|org|net|dev|ai|co|ly|me|to|gg|so|sh|xyz|site|tech|info)(?![a-zA-Z0-9])(?:\/[^\s<>"',]*)?)/g,
+      (_match, domain) => `<a href="https://${domain}" target="_blank" rel="noopener noreferrer">${domain}</a>`);
+
+    // Lists — collect consecutive list lines into ul/ol
+    html = html.replace(/((?:^[*\-] .+\n?)+)/gm, (block) => {
+      const items = block.trim().split('\n').map(l => `<li>${l.replace(/^[*\-] /, '')}</li>`).join('');
+      return `<ul>${items}</ul>`;
+    });
+    html = html.replace(/((?:^\d+\. .+\n?)+)/gm, (block) => {
+      const items = block.trim().split('\n').map(l => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('');
+      return `<ol>${items}</ol>`;
+    });
+
+    // Paragraphs — double newline becomes paragraph break
+    html = html
+      .split(/\n{2,}/)
+      .map(block => {
+        const trimmed = block.trim();
+        if (!trimmed) return '';
+        if (/^<(h[1-3]|ul|ol|hr)/.test(trimmed)) return trimmed;
+        return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+      })
+      .join('');
+
+    return html;
+  }
+
+  addMessage(role, content, timestamp = new Date(), highlights = []) {
     const message = { role, content, timestamp };
     this.messages.push(message);
 
@@ -719,7 +806,22 @@ class BrowserskyPanel {
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    bubble.textContent = content;
+    if (role === 'assistant') {
+      bubble.innerHTML = this.renderMarkdown(content);
+      if (highlights.length > 0) {
+        const chipsRow = document.createElement('div');
+        chipsRow.className = 'highlight-chips';
+        highlights.forEach(phrase => {
+          const chip = document.createElement('span');
+          chip.className = 'highlight-chip';
+          chip.textContent = phrase;
+          chipsRow.appendChild(chip);
+        });
+        bubble.appendChild(chipsRow);
+      }
+    } else {
+      bubble.textContent = content;
+    }
 
     messageDiv.appendChild(bubble);
 
@@ -770,17 +872,33 @@ class BrowserskyPanel {
     this.scrollToBottom();
   }
 
-  setLoading(loading) {
+  getContextualTitle(question) {
+    const q = (question || '').toLowerCase();
+    if (/summar|overview|brief|tldr/.test(q))           return 'Summarizing...';
+    if (/translat/.test(q))                              return 'Translating...';
+    if (/compar/.test(q))                                return 'Comparing...';
+    if (/explain|describe/.test(q))                      return 'Analyzing content...';
+    if (/who (is|are|wrote|made|created|built)/.test(q)) return 'Looking up the author...';
+    if (/price|cost|how much/.test(q))                   return 'Finding prices...';
+    if (/when|what (year|date|time)/.test(q))            return 'Checking dates...';
+    if (/list|find all|every/.test(q))                   return 'Gathering information...';
+    if (/link|url/.test(q))                              return 'Finding links...';
+    if (/name|title|called/.test(q))                     return 'Looking up the name...';
+    if (/review|rating|opinion/.test(q))                 return 'Reading the reviews...';
+    if (/how (do|does|can|to)/.test(q))                  return 'Figuring out how...';
+    if (/why/.test(q))                                   return 'Looking into why...';
+    if (/what/.test(q))                                  return 'Looking that up...';
+    if (/who/.test(q))                                   return 'Finding out who...';
+    if (/where/.test(q))                                 return 'Locating that...';
+    return 'Working on it...';
+  }
+
+  setLoading(loading, question = null) {
     this.isLoading = loading;
     this.updateSendButtonState();
 
     if (loading) {
-      const openingPhrases = [
-        'On it...', 'Let me check...', 'Looking into that...', 'Give me a second...',
-        'Digging in...', 'On the case...', 'Figuring that out...', 'Let me look at that...',
-        'Working on it...', 'Thinking through this...',
-      ];
-      const titleText = openingPhrases[Math.floor(Math.random() * openingPhrases.length)];
+      const titleText = question ? this.getContextualTitle(question) : 'Working on it...';
 
       const typingEl = document.createElement('div');
       typingEl.id = 'typingIndicator';
@@ -789,30 +907,37 @@ class BrowserskyPanel {
         <div class="progress-container">
           <div class="progress-header">
             <div class="typing-dots"><span></span><span></span><span></span></div>
-            <span class="progress-title">${titleText}</span>
-          </div>
-          <div class="progress-steps" id="progressSteps">
-            <div class="progress-timeline"></div>
+            <span class="progress-title"></span>
           </div>
         </div>`;
       this.messagesContainer.appendChild(typingEl);
       this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
-      this.loadingProgressTimeout = setTimeout(() => {
-        const stepsEl = document.getElementById('progressSteps');
-        if (stepsEl && stepsEl.querySelectorAll('.progress-step').length === 0) {
-          const row = document.createElement('div');
-          row.className = 'progress-step';
-          row.innerHTML = '<span class="progress-step-icon">⏳</span><span class="progress-step-label">Taking longer than expected...</span>';
-          stepsEl.appendChild(row);
-        }
-      }, 10000);
+      // Typewriter effect — types the title character by character, replays every 3s
+      const titleEl = typingEl.querySelector('.progress-title');
+      const startTypewriter = () => {
+        titleEl.textContent = '';
+        let i = 0;
+        const tick = () => {
+          if (i < titleText.length) {
+            titleEl.textContent += titleText[i++];
+            this.typewriterTimeout = setTimeout(tick, 55);
+          }
+        };
+        tick();
+      };
+      startTypewriter();
+      this.loadingProgressTimeout = setInterval(startTypewriter, 3000);
     } else {
       const typingEl = document.getElementById('typingIndicator');
       if (typingEl) typingEl.remove();
       if (this.loadingProgressTimeout) {
-        clearTimeout(this.loadingProgressTimeout);
+        clearInterval(this.loadingProgressTimeout);
         this.loadingProgressTimeout = null;
+      }
+      if (this.typewriterTimeout) {
+        clearTimeout(this.typewriterTimeout);
+        this.typewriterTimeout = null;
       }
     }
   }
@@ -820,18 +945,18 @@ class BrowserskyPanel {
   appendProgressStep(step, label) {
     const stepsEl = document.getElementById('progressSteps');
     if (!stepsEl) return;
+
+    const stepIcons = {
+      page_read:  '📄',
+      screenshot: '📸',
+      thinking:   '💡',
+    };
+    const icon = stepIcons[step] || '⚙️';
+
     const row = document.createElement('div');
     row.className = 'progress-step';
-    row.innerHTML = `<span class="progress-step-icon">🔧</span><span class="progress-step-label">${label}</span>`;
+    row.innerHTML = `<span class="progress-step-icon">${icon}</span><span class="progress-step-label">${label}</span>`;
     stepsEl.appendChild(row);
-
-    const stepTitles = {
-      page_read:  'Reading the page...',
-      screenshot: 'Taking a screenshot...',
-      thinking:   'Thinking it through...',
-    };
-    const titleEl = document.querySelector('.progress-title');
-    if (titleEl && stepTitles[step]) titleEl.textContent = stepTitles[step];
 
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
   }
@@ -842,7 +967,8 @@ class BrowserskyPanel {
   }
 
   showAuthError() {
-    this.errorMessage.innerHTML = 'Session expired. <a id="reSignInLink" style="color:inherit;font-weight:600;text-decoration:underline;cursor:pointer;">Sign in again</a>';
+    const hasQuestion = !!this.pendingQuestion;
+    this.errorMessage.innerHTML = `Session expired. <a id="reSignInLink" style="color:inherit;font-weight:600;text-decoration:underline;cursor:pointer;">Sign in again</a>${hasQuestion ? ' — your message will send automatically.' : ''}`;
     this.errorBanner.style.display = 'flex';
     document.getElementById('reSignInLink')?.addEventListener('click', () => {
       chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in` });

@@ -221,8 +221,76 @@ async function captureTabScreenshot(tabId) {
  * @param {string} title - Page title
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
+/**
+ * Returns true if a Clerk JWT token is expired or expiring within 45 seconds.
+ * @param {string} token
+ * @returns {boolean}
+ */
+function isTokenExpired(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return Date.now() >= (payload.exp * 1000) - 45000; // 45s buffer
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Silently refreshes the Clerk token by opening auth-bridge in a background tab.
+ * If the user's Clerk session is still active the page auto-sends a fresh token
+ * and the tab is closed — the user never sees it.
+ * @returns {Promise<string>} The new token
+ */
+function refreshToken() {
+  return new Promise((resolve, reject) => {
+    let tabId = null;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Token refresh timed out'));
+    }, 30000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(onStorageChanged);
+      if (tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+    }
+
+    // Watch for the token being written to storage — works reliably in service workers
+    // (chrome.runtime.sendMessage can't be received by the sender itself)
+    function onStorageChanged(changes, area) {
+      if (area === 'local' && changes.clerkToken?.newValue) {
+        cleanup();
+        resolve(changes.clerkToken.newValue);
+      }
+    }
+
+    chrome.storage.onChanged.addListener(onStorageChanged);
+
+    chrome.tabs.create({
+      url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=refresh`,
+      active: false
+    }).then(tab => {
+      tabId = tab.id;
+    }).catch(err => {
+      cleanup();
+      reject(err);
+    });
+  });
+}
+
 async function getAuthHeaders() {
-  const { clerkToken } = await chrome.storage.local.get('clerkToken');
+  let { clerkToken } = await chrome.storage.local.get('clerkToken');
+
+  if (clerkToken && isTokenExpired(clerkToken)) {
+    try {
+      clerkToken = await refreshToken();
+    } catch (e) {
+      console.warn('Browsersky: Silent token refresh failed:', e.message);
+      // Fall through with expired token — backend will 401, retry logic handles it
+    }
+  }
+
   return clerkToken
     ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clerkToken}` }
     : { 'Content-Type': 'application/json' };
@@ -305,7 +373,7 @@ async function classifyQuestion(question, pageContext) {
  * @param {Object} pageContext - Page context {title, url, text}
  * @returns {Promise<Object>} AI response {answer, usage?, model?}
  */
-async function askBrowsersky(question, pageContext, model) {
+async function askBrowsersky(question, pageContext, model, history = []) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
@@ -316,7 +384,8 @@ async function askBrowsersky(question, pageContext, model) {
       body: JSON.stringify({
         question,
         pageContext,
-        model: model || CONFIG.defaultModel
+        model: model || CONFIG.defaultModel,
+        history
       }),
       signal: controller.signal
     });
@@ -387,7 +456,6 @@ async function handleAskBrowsersky(message) {
     if (!message.approved) {
       saveMessage('user', message.question);
     }
-    sendProgress('page_read', 'Reading page...');
 
     // Use context captured when this tab's panel opened
     const stored = await chrome.storage.session.get(`ctx_${tabId}`);
@@ -405,7 +473,7 @@ async function handleAskBrowsersky(message) {
             const tab = await chrome.tabs.get(tabId);
             const aiResponse = await askBrowserskyWithVision(message.question, screenshot, tab.url, tab.title);
             saveMessage('assistant', aiResponse.answer);
-            sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+            sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
             return;
           }
         }
@@ -415,17 +483,17 @@ async function handleAskBrowsersky(message) {
       pageContext = contextResult.context;
     }
 
-    // Always show a plan approval on first (non-approved) ask
-    if (!message.approved) {
-      const classification = await classifyQuestion(message.question, pageContext);
-      const steps = (Array.isArray(classification.steps) && classification.steps.length > 0)
-        ? classification.steps
-        : ['Read page content', 'Analyze your question', 'Write response'];
-      let domain = pageContext.url;
-      try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
-      sendResponse({ plan: { steps, domain, originalQuestion: message.question } });
-      return;
-    }
+    // TODO: Re-enable plan approval when agent interactions (clicking on page) are added.
+    // if (!message.approved) {
+    //   let domain = pageContext.url;
+    //   try { domain = new URL(pageContext.url).hostname; } catch { /* keep raw url */ }
+    //   sendResponse({ plan: {
+    //     steps: ['Read page content', 'Analyze your question', 'Write response'],
+    //     domain,
+    //     originalQuestion: message.question
+    //   } });
+    //   return;
+    // }
 
     const useScreenshot = isComplexPage(pageContext.url) || !pageContext.text || pageContext.text.length < CONFIG.minTextLength;
 
@@ -440,18 +508,34 @@ async function handleAskBrowsersky(message) {
           message.question, screenshot, pageContext.url, pageContext.title
         );
         saveMessage('assistant', aiResponse.answer);
-        sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+        sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
         return;
       }
     }
 
     // Call AI provider with text context
     sendProgress('thinking', 'Thinking...');
-    const aiResponse = await askBrowsersky(message.question, pageContext, message.model);
+    const history = (conversations[tabId] || []).slice(0, -1).map(({ role, content }) => ({ role, content }));
+    const aiResponse = await askBrowsersky(message.question, pageContext, message.model, history);
     saveMessage('assistant', aiResponse.answer);
-    sendResponse({ answer: aiResponse.answer, meta: { usage: aiResponse.usage, model: aiResponse.model } });
+    sendResponse({ answer: aiResponse.answer, highlights: aiResponse.highlights, meta: { usage: aiResponse.usage, model: aiResponse.model } });
 
   } catch (error) {
+    const isAuthError = /unauthorized|invalid.*token|expired.*token|token.*expired/i.test(error.message);
+
+    // Safety-net retry: if we got a 401 and haven't retried yet, try a fresh token once
+    if (isAuthError && !message._retried) {
+      try {
+        console.log('Browsersky: Auth error — attempting token refresh and retry');
+        await refreshToken();
+        return handleAskBrowsersky({ ...message, _retried: true });
+      } catch {
+        // Refresh failed — session is truly expired, tell the panel
+        sendResponse({ error: 'Unauthorized: Invalid or expired token' });
+        return;
+      }
+    }
+
     console.error('Browsersky: Error handling ASK_BROWSERSKY:', error);
     sendResponse({ error: error.message || 'An unexpected error occurred. Please try again.' });
   }
@@ -472,6 +556,12 @@ chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) =>
       chrome.runtime.sendMessage({ type: 'SIGNED_OUT' }).catch(() => {});
       sendResponse({ ok: true });
     });
+    return true;
+  }
+
+  if (message.type === 'CLOSE_AUTH_TAB') {
+    if (_sender.tab?.id) chrome.tabs.remove(_sender.tab.id).catch(() => {});
+    sendResponse({ ok: true });
     return true;
   }
 
