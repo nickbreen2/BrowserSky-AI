@@ -336,7 +336,8 @@ class BrowserskyPanel {
 
     const extId = chrome.runtime.id;
     document.getElementById('signInBtn').addEventListener('click', () => {
-      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${extId}&mode=sign-in` });
+      const sourceTabId = this.tabId ?? '';
+      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${extId}&mode=sign-in&sourceTabId=${sourceTabId}` });
     });
     // Listen for token arriving from service worker after sign-in
     chrome.runtime.onMessage.addListener((message) => {
@@ -971,7 +972,8 @@ class BrowserskyPanel {
     this.errorMessage.innerHTML = `Session expired. <a id="reSignInLink" style="color:inherit;font-weight:600;text-decoration:underline;cursor:pointer;">Sign in again</a>${hasQuestion ? ' — your message will send automatically.' : ''}`;
     this.errorBanner.style.display = 'flex';
     document.getElementById('reSignInLink')?.addEventListener('click', () => {
-      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in` });
+      const sourceTabId = this.tabId ?? '';
+      chrome.tabs.create({ url: `http://localhost:3000/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in&sourceTabId=${sourceTabId}` });
     });
   }
 

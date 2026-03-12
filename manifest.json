@@ -26,6 +26,15 @@
   "side_panel": {
     "default_path": "sidepanel.html"
   },
+  "commands": {
+    "open-sidepanel": {
+      "suggested_key": {
+        "default": "Ctrl+B",
+        "mac": "Command+B"
+      },
+      "description": "Open Browsersky AI side panel"
+    }
+  },
   "background": {
     "service_worker": "service_worker.js"
   },

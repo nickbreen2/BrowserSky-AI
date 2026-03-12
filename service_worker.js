@@ -16,9 +16,10 @@ const CONFIG = {
 };
 
 /**
- * Opens the side panel when the extension icon is clicked
+ * Opens the side panel for a given tab (shared by icon click and keyboard shortcut)
+ * @param {chrome.tabs.Tab} tab
  */
-chrome.action.onClicked.addListener(async (tab) => {
+async function openSidePanelForTab(tab) {
   // Enable and open the panel locked to this specific tab only.
   // Must NOT await setOptions — open() must be called synchronously within the user gesture.
   chrome.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true });
@@ -44,6 +45,29 @@ chrome.action.onClicked.addListener(async (tab) => {
   const contextResult = await getPageContext(tab.id);
   if (!contextResult.error) {
     await chrome.storage.session.set({ [`ctx_${tab.id}`]: contextResult.context });
+  }
+}
+
+/**
+ * Opens the side panel when the extension icon is clicked
+ */
+chrome.action.onClicked.addListener((tab) => {
+  openSidePanelForTab(tab);
+});
+
+/**
+ * Opens the side panel when Command+B (Mac) or Ctrl+B (Windows) is pressed.
+ * Must use callback (not async/await) — Chrome loses the user gesture flag after ~1ms,
+ * so open() must run immediately in the tabs.query callback.
+ */
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'open-sidepanel') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (tab) {
+        openSidePanelForTab(tab);
+      }
+    });
   }
 });
 
@@ -560,6 +584,16 @@ chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) =>
   }
 
   if (message.type === 'CLOSE_AUTH_TAB') {
+    if (_sender.tab?.id) chrome.tabs.remove(_sender.tab.id).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.type === 'FOCUS_TAB') {
+    const { sourceTabId } = message;
+    if (sourceTabId) {
+      chrome.tabs.update(sourceTabId, { active: true }).catch(() => {});
+    }
     if (_sender.tab?.id) chrome.tabs.remove(_sender.tab.id).catch(() => {});
     sendResponse({ ok: true });
     return true;
