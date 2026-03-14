@@ -3,6 +3,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  --brand: 210 100% 50%;
+  --brand-foreground: 213 100% 60%;
+
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
 }
 
 @theme inline {
@@ -10,12 +16,49 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --animate-appear: appear 0.5s ease-out both;
+  --animate-appear-zoom: appear-zoom 0.8s ease-out both;
+  --animate-float: float 3s ease-in-out infinite;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --brand: 213 100% 60%;
+    --brand-foreground: 210 100% 50%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+  }
+}
+
+@keyframes appear {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes appear-zoom {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -23,4 +66,37 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.glow-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(to bottom, #389CFF, #007BC3);
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  box-shadow:
+    0 0 18px rgba(56, 156, 255, 0.5),
+    0 0 40px rgba(0, 123, 195, 0.25);
+}
+
+.glow-btn:hover {
+  box-shadow:
+    0 0 28px rgba(56, 156, 255, 0.7),
+    0 0 60px rgba(0, 123, 195, 0.4);
+  transform: translateY(-1px);
+}
+
+.glow-btn[data-state="clicked"] {
+  transform: scale(0.96);
+  box-shadow:
+    0 0 12px rgba(56, 156, 255, 0.4),
+    0 0 24px rgba(0, 123, 195, 0.2);
 }

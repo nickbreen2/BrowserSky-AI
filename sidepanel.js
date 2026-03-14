@@ -982,7 +982,13 @@ class BrowserskyPanel {
   }
 
   scrollToBottom() {
-    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    // Use rAF to ensure the new DOM element is painted before measuring height
+    requestAnimationFrame(() => {
+      this.messagesContainer.scrollTo({
+        top: this.messagesContainer.scrollHeight,
+        behavior: 'smooth'
+      });
+    });
   }
 
   formatTime(date) {
@@ -1015,11 +1021,7 @@ class BrowserskyPanel {
     if (!this.suggestionChips || !tab?.url) return;
 
     const SUGGESTIONS = {
-      'github.com': [
-        'Summarize what this page is about',
-        'Explain the code on this page',
-        'What are the recent changes here?',
-      ],
+      // GitHub is handled separately below with path-based detection
       'youtube.com': [
         'Summarize this video for me',
         'What are the key points in this video?',
@@ -1042,10 +1044,7 @@ class BrowserskyPanel {
         'Summarize the top comments',
         "What's the main discussion about?",
       ],
-      'linkedin.com': [
-        'Summarize this profile',
-        'What does this job require?',
-      ],
+      // LinkedIn is handled separately below with path-based detection
       'twitter.com': [
         'Summarize this thread',
         "What's this tweet about?",
@@ -1068,8 +1067,80 @@ class BrowserskyPanel {
     };
 
     let hostname = '';
-    try { hostname = new URL(tab.url).hostname.replace('www.', ''); }
+    let pathname = '';
+    try {
+      const parsed = new URL(tab.url);
+      hostname = parsed.hostname.replace('www.', '');
+      pathname = parsed.pathname;
+    }
     catch { return; }
+
+    // GitHub: pick suggestions based on the specific page type
+    if (hostname === 'github.com') {
+      const segments = pathname.split('/').filter(Boolean);
+      let suggestions;
+      if (segments.length <= 1) {
+        // Profile page — no suggestions needed
+        return;
+      } else if (pathname.includes('/blob/') || pathname.includes('/tree/')) {
+        suggestions = ['Explain this code', 'What does this file do?'];
+      } else if (pathname.includes('/issues/')) {
+        suggestions = ['Summarize this issue', 'What is being requested here?'];
+      } else if (pathname.includes('/pull/')) {
+        suggestions = ['Summarize this pull request', 'What changes does this PR make?'];
+      } else if (pathname.includes('/commits') || pathname.includes('/commit/')) {
+        suggestions = ['What are the recent changes?', 'Summarize these commits'];
+      } else if (segments.length === 2) {
+        // Repo root
+        suggestions = ['Summarize this repository', 'What does this project do?'];
+      } else {
+        return;
+      }
+      this.suggestionChips.innerHTML = '';
+      suggestions.forEach(text => {
+        const btn = document.createElement('button');
+        btn.className = 'suggestion-chip';
+        btn.textContent = text;
+        btn.addEventListener('click', () => {
+          this.messageInput.value = text;
+          this.updateSendButtonState();
+          this.handleSend();
+        });
+        this.suggestionChips.appendChild(btn);
+      });
+      return;
+    }
+
+    // LinkedIn: pick suggestions based on the specific page type
+    if (hostname === 'linkedin.com') {
+      let suggestions;
+      if (pathname.startsWith('/in/')) {
+        suggestions = ['Review this profile', 'What makes this person stand out?'];
+      } else if (pathname.startsWith('/jobs/')) {
+        suggestions = ['What does this job require?', 'Is this job a good fit for me?'];
+      } else if (pathname.startsWith('/company/')) {
+        suggestions = ['Summarize this company', 'What does this company do?'];
+      } else if (pathname.startsWith('/pulse/') || pathname.startsWith('/articles/')) {
+        suggestions = ['Summarize this article', 'What are the key takeaways?'];
+      } else if (pathname.startsWith('/feed/')) {
+        suggestions = ['Summarize this post', "What's the main point here?"];
+      } else {
+        suggestions = ['Summarize this page', 'What is this about?'];
+      }
+      this.suggestionChips.innerHTML = '';
+      suggestions.forEach(text => {
+        const btn = document.createElement('button');
+        btn.className = 'suggestion-chip';
+        btn.textContent = text;
+        btn.addEventListener('click', () => {
+          this.messageInput.value = text;
+          this.updateSendButtonState();
+          this.handleSend();
+        });
+        this.suggestionChips.appendChild(btn);
+      });
+      return;
+    }
 
     const suggestions = SUGGESTIONS[hostname];
     if (!suggestions?.length) return;

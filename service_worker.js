@@ -9,6 +9,7 @@ const CONFIG = {
   visionEndpoint: 'http://localhost:3001/api/chat/vision',
   classifyEndpoint: 'http://localhost:3001/api/classify',
   defaultModel: 'MiniMax-Text-01',
+  visionModel: 'gpt-4o',
   fallbackModel: 'gpt-4o-mini',
   requestTimeout: 30000, // 30 seconds
   progressWarningDelay: 10000, // 10 seconds
@@ -109,7 +110,17 @@ function isComplexPage(url) {
     'app.asana.com',
     'trello.com'
   ];
-  return complexPatterns.some(pattern => url.includes(pattern));
+  if (complexPatterns.some(pattern => url.includes(pattern))) return true;
+
+  // LinkedIn's article/post editor is a JS-heavy rich text app —
+  // text extraction is unreliable, always use screenshot instead.
+  if (url.includes('linkedin.com') && (
+    url.includes('/pulse/edit') ||
+    url.includes('/article/edit') ||
+    url.includes('/publishing/')
+  )) return true;
+
+  return false;
 }
 
 /**
@@ -332,7 +343,7 @@ async function askBrowserskyWithVision(question, screenshotDataUrl, url, title) 
         question,
         screenshot: screenshotDataUrl,
         pageInfo: { url, title },
-        model: CONFIG.defaultModel
+        model: CONFIG.visionModel
       }),
       signal: controller.signal
     });
@@ -572,6 +583,17 @@ chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) =>
       chrome.runtime.sendMessage({ type: 'CLERK_TOKEN_RECEIVED' }).catch(() => {});
       sendResponse({ ok: true });
     });
+
+    // Auto-open the side panel on the tab that triggered sign-in
+    if (message.sourceTabId) {
+      chrome.tabs.get(message.sourceTabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        chrome.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true });
+        chrome.sidePanel.open({ tabId: tab.id });
+        chrome.tabs.update(tab.id, { active: true });
+      });
+    }
+
     return true;
   }
 

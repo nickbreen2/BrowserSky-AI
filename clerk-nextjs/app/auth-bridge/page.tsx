@@ -3,6 +3,7 @@
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { InfiniteGridBg } from '@/components/ui/infinite-grid-bg'
 
 function AuthBridge() {
   const { getToken, isSignedIn, isLoaded } = useAuth()
@@ -16,6 +17,7 @@ function AuthBridge() {
 
     const extId = searchParams.get('extId')
     const mode = searchParams.get('mode') ?? 'sign-in'
+    const sourceTabId = searchParams.get('sourceTabId')
 
     if (!isSignedIn) {
       const redirectBack = `/auth-bridge?extId=${extId}&mode=${mode}`
@@ -50,7 +52,8 @@ function AuthBridge() {
           email: user?.primaryEmailAddress?.emailAddress ?? '',
         }
 
-        chromeRuntime.sendMessage(extId, { type: 'CLERK_TOKEN', token, user: userInfo }, () => {
+        const sourceTabIdNum = sourceTabId ? parseInt(sourceTabId, 10) : null
+        chromeRuntime.sendMessage(extId, { type: 'CLERK_TOKEN', token, user: userInfo, sourceTabId: sourceTabIdNum }, () => {
           if (chromeRuntime.lastError) {
             setStatus('Error: Could not reach extension. Make sure it is installed and active.')
             return
@@ -71,116 +74,181 @@ function AuthBridge() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
+        overflow: 'hidden',
         fontFamily: 'sans-serif',
         backgroundColor: '#ffffff',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
       }}
     >
-      {/* Header logo */}
-      <div style={{ position: 'fixed', top: 20, left: 24, zIndex: 10 }}>
-        <img src="/icons/Browsersky-1.svg" alt="BrowserSky AI" style={{ height: 36 }} />
-      </div>
+      <InfiniteGridBg />
+      {/* Navbar */}
+      <nav
+        style={{
+          height: 64,
+          borderBottom: '1px solid #F3F4F6',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 78px',
+          flexShrink: 0,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        <img src="/icons/Browsersky-1.svg" alt="BrowserSky AI" style={{ height: 32 }} />
+      </nav>
 
+      {/* Page content */}
       {showSetupGuide ? (
-        /* How to set up the extension */
         <div
           style={{
+            flex: 1,
             display: 'flex',
             flexDirection: 'row',
-            gap: 48,
-            maxWidth: 1100,
-            margin: '0 auto',
-            padding: '100px 48px 80px',
-            alignItems: 'flex-start',
+            padding: '0 78px',
+            gap: 64,
+            overflow: 'hidden',
+            position: 'relative',
+            zIndex: 1,
           }}
         >
           {/* Left column */}
-          <div style={{ flex: 1 }}>
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              paddingBottom: 80,
+            }}
+          >
+            {/* Badge */}
+            <div
+              style={{
+                display: 'inline-block',
+                alignSelf: 'flex-start',
+                backgroundColor: '#EEF2FF',
+                color: '#4F46E5',
+                fontSize: 13,
+                fontWeight: 600,
+                padding: '5px 14px',
+                borderRadius: 999,
+                marginBottom: 14,
+              }}
+            >
+              BrowserSky Chrome Extension
+            </div>
+
             <h1
               style={{
                 fontFamily: 'var(--font-gelasio), serif',
-                fontSize: 28,
-                fontWeight: 600,
+                fontSize: 44,
+                fontWeight: 800,
                 color: '#111827',
-                marginBottom: 48,
-                lineHeight: 1.2,
+                lineHeight: 1.1,
+                margin: '0 0 20px 0',
+                maxWidth: 560,
               }}
             >
-              Enhance Your Browsing Experience with BrowserSky AI
+              Your AI browsing assistant is ready to help.
             </h1>
 
-            <div
+            <img
+              src="/icons/command-b-closeup.png"
+              alt="Command B keyboard shortcut"
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: 16,
+                width: '100%',
+                maxWidth: 420,
+                height: 'auto',
+                borderRadius: 14,
+                marginBottom: 14,
               }}
-            >
-              <img
-                src="/icons/command-b-keys.png"
-                alt="Command B keyboard shortcut"
-                style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }}
-              />
-              <div>
-                <p style={{ fontSize: 18, fontWeight: 700, color: '#111827', margin: 0 }}>
-                  Chat with any page
-                </p>
-                <p style={{ fontSize: 14, color: '#6B7280', margin: '8px 0 0 0', lineHeight: 1.5 }}>
-                  Press Command B (Mac) or Ctrl + M (Windows) to open BrowserSky.
-                </p>
-              </div>
-            </div>
+            />
+
+            <p style={{ fontSize: 18, fontWeight: 700, color: '#111827', margin: '0 0 4px 0' }}>
+              Chat with any page
+            </p>
+            <p style={{ fontSize: 14, color: '#6B7280', margin: 0, lineHeight: 1.6 }}>
+              Press Command + B (Mac) or Ctrl + M (Windows) to summon BrowserSky on any website.
+            </p>
           </div>
 
           {/* Right column */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 40 }}>
+          <div
+            style={{
+              flex: '0 0 340px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              gap: 16,
+              paddingTop: 24,
+              paddingBottom: 80,
+            }}
+          >
+            {/* Step 1 */}
             <div>
-              <h2
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>
+                Step 1: Press the Command Key
+              </p>
+              <div
                 style={{
-                  fontSize: 18,
-                  fontWeight: 700,
-                  color: '#111827',
-                  marginBottom: 16,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                  border: '1px solid #E5E7EB',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
                 }}
               >
-                Step 1: Press the Command Key
-              </h2>
-              <img
-                src="/icons/Command-Key-Image.svg"
-                alt="Click the extensions puzzle piece icon in the browser toolbar"
-                style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }}
-              />
+                <img
+                  src="/icons/Command-Key-Image.svg"
+                  alt="Press the command key in the browser toolbar"
+                  style={{ width: '100%', height: 'auto', display: 'block' }}
+                />
+              </div>
             </div>
 
+            {/* Step 2 */}
             <div>
-              <h2
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>
+                Step 2: Pin BrowserSky AI
+              </p>
+              <div
                 style={{
-                  fontSize: 18,
-                  fontWeight: 700,
-                  color: '#111827',
-                  marginBottom: 16,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                  border: '1px solid #E5E7EB',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
                 }}
               >
-                Step 2: Pin BrowserSky AI
-              </h2>
-              <img
-                src="/icons/Pin-Extension-Image.svg"
-                alt="Pin the BrowserSky AI extension in the extensions menu"
-                style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }}
-              />
+                <img
+                  src="/icons/Pin-Extension-Image.svg"
+                  alt="Pin BrowserSky AI in the extensions menu"
+                  style={{ width: '100%', height: 'auto', display: 'block' }}
+                />
+              </div>
             </div>
+
+            <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>
+              Need assistance?{' '}
+              <a
+                href="mailto:support@browsersky.ai"
+                style={{ color: '#4F46E5', fontWeight: 600, textDecoration: 'none' }}
+              >
+                Feel free to reach out!
+              </a>
+            </p>
           </div>
         </div>
       ) : (
         /* Loading or error state */
         <div
           style={{
+            flex: 1,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '100vh',
             gap: 12,
           }}
         >
