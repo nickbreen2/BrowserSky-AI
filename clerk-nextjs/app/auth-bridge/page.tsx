@@ -81,27 +81,17 @@ function AuthBridge() {
         backgroundColor: '#0f1f27',
         display: 'flex',
         flexDirection: 'column',
-        position: 'relative',
         color: 'white',
       }}
     >
-      <InfiniteGridBg />
+      <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <InfiniteGridBg />
 
-      <Header />
+        <Header />
 
       {/* Page content */}
       {showSetupGuide ? (
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'row',
-            padding: '140px 78px 0',
-            gap: 64,
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
+        <div className="relative z-10 flex flex-1 flex-col gap-10 px-6 pt-28 pb-16 md:flex-row md:gap-16 md:px-16 md:pt-36 lg:px-20">
           {/* Left column */}
           <div
             style={{
@@ -109,7 +99,7 @@ function AuthBridge() {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              paddingBottom: 80,
+              paddingBottom: 40,
             }}
           >
             {/* Badge */}
@@ -133,7 +123,7 @@ function AuthBridge() {
             <h1
               style={{
                 fontFamily: 'var(--font-gelasio), serif',
-                fontSize: 44,
+                fontSize: 'clamp(28px, 5vw, 44px)',
                 fontWeight: 800,
                 color: '#ffffff',
                 lineHeight: 1.1,
@@ -166,14 +156,14 @@ function AuthBridge() {
 
           {/* Right column */}
           <div
+            className="w-full md:w-auto md:flex-none"
             style={{
               flex: '0 0 340px',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
               gap: 16,
-              paddingTop: 24,
-              paddingBottom: 80,
+              paddingBottom: 40,
             }}
           >
             {/* Step 1 */}
@@ -259,6 +249,7 @@ function AuthBridge() {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
+      </div>
       <Footer />
     </div>
   )

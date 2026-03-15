@@ -43,7 +43,7 @@ export function HeroWithMockup({
       )}
     >
       <div className="relative mx-auto max-w-[1280px] flex flex-col gap-12 lg:gap-24">
-        <div className="relative z-10 flex flex-col items-center gap-3 pt-12 md:pt-16 text-center lg:gap-4">
+        <div className="relative z-10 flex flex-col items-center gap-3 pt-22 md:pt-16 text-center lg:gap-4">
           {/* Heading */}
           <h1
             className={cn(
@@ -82,7 +82,7 @@ export function HeroWithMockup({
               alt="BrowserSky"
               width={1200}
               height={300}
-              className="h-64 w-auto"
+              className="h-40 sm:h-52 md:h-64 w-auto"
             />
           </div>
 

@@ -65,16 +65,17 @@ export default function PricingPage() {
   }
 
   return (
-    <div className="relative min-h-screen text-white font-[family-name:var(--font-gelasio)]" style={{ background: "#0f1f27" }}>
-      <InfiniteGridBg />
-      <Header />
+    <div className="relative min-h-screen flex flex-col text-white font-[family-name:var(--font-gelasio)]" style={{ background: "#0f1f27" }}>
+      <div className="relative flex-1">
+        <InfiniteGridBg />
+        <Header />
 
-      <main className="relative z-10 flex flex-col items-center px-4 pt-36 pb-24">
+      <main className="relative z-10 flex flex-col items-center px-4 pt-26 md:pt-36 pb-24">
         {/* Heading */}
-        <h1 className="text-4xl md:text-5xl font-bold text-center mb-4">
+        <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-center mb-4">
           Simple, transparent pricing
         </h1>
-        <p className="text-white/60 text-center text-lg mb-10 max-w-xl">
+        <p className="text-white/60 text-center text-base md:text-lg mb-10 max-w-xl">
           Start for free. Upgrade when you&apos;re ready for more.
         </p>
 
@@ -178,6 +179,7 @@ export default function PricingPage() {
 
         </div>
       </main>
+      </div>
       <Footer />
     </div>
   );

@@ -33,7 +33,7 @@ export function Header() {
   }, [open]);
 
   return (
-    <header className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4">
+    <header className="fixed left-0 right-0 z-50 flex justify-center px-4" style={{ top: 'max(1rem, env(safe-area-inset-top))' }}>
       <nav className="relative flex h-14 w-full max-w-3xl items-center rounded-full border border-white/20 bg-[#15313D]/88 px-6 shadow-lg backdrop-blur-xl text-white font-[family-name:var(--font-gelasio)]">
         {/* Logo — left */}
         <Link href="/" className="flex items-center">
@@ -81,9 +81,9 @@ export function Header() {
         {/* Mobile menu toggle */}
         <Button
           size="icon"
-          variant="outline"
+          variant="ghost"
           onClick={() => setOpen(!open)}
-          className="md:hidden"
+          className="ml-auto md:hidden text-white hover:bg-white/10 hover:text-white"
         >
           <MenuToggleIcon open={open} className="size-5" duration={300} />
         </Button>
@@ -92,7 +92,7 @@ export function Header() {
       {/* Mobile menu */}
       <div
         className={cn(
-          'bg-background/90 fixed top-20 right-4 left-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-white/30 shadow-lg md:hidden font-[family-name:var(--font-gelasio)]',
+          'bg-[#0f1f27]/95 backdrop-blur-xl fixed top-20 right-4 left-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-white/10 shadow-lg md:hidden font-[family-name:var(--font-gelasio)]',
           open ? 'block' : 'hidden',
         )}
       >
@@ -107,7 +107,7 @@ export function Header() {
             {links.map((link) => (
               <Link
                 key={link.label}
-                className={buttonVariants({ variant: 'ghost', className: 'justify-start' })}
+                className={buttonVariants({ variant: 'ghost', className: 'justify-start text-white hover:bg-white/10 hover:text-white' })}
                 href={link.href}
                 onClick={(e) => { handleNavClick(e, link.scrollTo); setOpen(false); }}
               >
