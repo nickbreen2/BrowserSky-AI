@@ -296,7 +296,7 @@ class BrowserskyPanel {
     });
 
     document.getElementById('settingsSupportBtn').addEventListener('click', () => {
-      chrome.tabs.create({ url: 'http://localhost:3000/support' });
+      chrome.tabs.create({ url: 'https://browsersky.dev/support' });
       this.dismissSettingsSheet();
     });
 
