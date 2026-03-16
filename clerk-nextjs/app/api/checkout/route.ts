@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { createClerkClient } from "@clerk/backend";
 import { initLemonSqueezy } from "@/lib/lemonsqueezy";
 import { createCheckout } from "@lemonsqueezy/lemonsqueezy.js";
 
-export async function POST(req: NextRequest) {
-  const { userId } = await auth();
+const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
 
-  if (!userId) {
+export async function POST(req: NextRequest) {
+  const requestState = await clerk.authenticateRequest(req, {
+    secretKey: process.env.CLERK_SECRET_KEY!,
+    publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!,
+  });
+
+  if (!requestState.isSignedIn) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await currentUser();
-  const email = user?.emailAddresses?.[0]?.emailAddress ?? "";
+  const { userId } = requestState.toAuth();
+  const user = await clerk.users.getUser(userId);
+  const email = user.emailAddresses[0]?.emailAddress ?? "";
 
   const { variantId } = await req.json();
 
