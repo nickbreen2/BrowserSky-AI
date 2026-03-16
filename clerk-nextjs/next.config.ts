@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {},
   webpack(config, { nextRuntime }) {
     if (nextRuntime === "edge") {
       config.resolve.conditionNames = [
