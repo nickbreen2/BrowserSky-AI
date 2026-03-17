@@ -105,6 +105,12 @@ body {
 
 /* ── Clerk auth form overrides ───────────── */
 
+/* OTP verification code digits */
+.cl-otpCodeFieldInput {
+  color: #f1f5f9 !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
 /* Placeholder text */
 .cl-formFieldInput::placeholder {
   color: rgba(241, 245, 249, 0.45) !important;
