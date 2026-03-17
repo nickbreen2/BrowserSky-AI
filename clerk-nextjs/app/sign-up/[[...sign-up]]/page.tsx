@@ -48,17 +48,20 @@ export default function SignUpPage() {
               colorInputBackground: '#192636',
               colorInputText: '#f1f5f9',
               colorText: '#f1f5f9',
-              colorTextSecondary: 'rgba(241,245,249,0.45)',
+              colorTextSecondary: 'rgba(241,245,249,0.65)',
               colorNeutral: '#f1f5f9',
               borderRadius: '14px',
               fontFamily: 'var(--font-geist-sans), system-ui, sans-serif',
               fontSize: '15px',
             },
             elements: {
+              logoBox: {
+                display: 'none',
+              },
               card: {
                 background: '#111d2b',
-                border: '1px solid rgba(255,255,255,0.08)',
-                boxShadow: '0 0 0 1px rgba(59,130,246,0.08), 0 20px 60px rgba(0,0,0,0.6)',
+                border: '1px solid rgba(255,255,255,0.16)',
+                boxShadow: '0 0 0 1px rgba(59,130,246,0.12), 0 20px 60px rgba(0,0,0,0.6)',
                 padding: '32px',
                 width: '400px',
               },
@@ -73,8 +76,8 @@ export default function SignUpPage() {
                 fontSize: '14px',
               },
               socialButtonsBlockButton: {
-                border: '1px solid rgba(255,255,255,0.1)',
-                backgroundColor: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                backgroundColor: 'rgba(255,255,255,0.12)',
                 color: '#f1f5f9',
                 borderRadius: '10px',
                 height: '44px',
@@ -88,7 +91,7 @@ export default function SignUpPage() {
                 backgroundColor: 'rgba(255,255,255,0.08)',
               },
               dividerText: {
-                color: 'rgba(241,245,249,0.3)',
+                color: 'rgba(241,245,249,0.5)',
                 fontSize: '13px',
               },
               formFieldLabel: {
