@@ -45,7 +45,7 @@ export default function SignUpPage() {
             variables: {
               colorPrimary: '#3b82f6',
               colorBackground: '#192431',
-              colorInputBackground: '#192636',
+              colorInputBackground: '#0f1a26',
               colorInputText: '#f1f5f9',
               colorText: '#f1f5f9',
               colorTextSecondary: 'rgba(241,245,249,0.75)',
@@ -85,8 +85,8 @@ export default function SignUpPage() {
                 fontSize: '14px',
               },
               socialButtonsBlockButton: {
-                border: '1px solid rgba(255,255,255,0.18)',
-                backgroundColor: 'rgba(255,255,255,0.12)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                backgroundColor: '#1a2b3c',
                 color: '#f1f5f9',
                 borderRadius: '10px',
                 height: '44px',
@@ -109,7 +109,7 @@ export default function SignUpPage() {
                 fontWeight: '500',
               },
               formFieldInput: {
-                backgroundColor: '#192636',
+                backgroundColor: '#0f1a26',
                 border: '1px solid transparent',
                 borderRadius: '10px',
                 color: '#f1f5f9',
