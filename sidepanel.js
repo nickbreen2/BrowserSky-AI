@@ -291,7 +291,7 @@ class BrowserskyPanel {
     });
 
     document.getElementById('settingsUpgradeBtn').addEventListener('click', () => {
-      chrome.tabs.create({ url: `https://browsersky-ai.vercel.app/pricing?extId=${chrome.runtime.id}` });
+      chrome.tabs.create({ url: `https://browsersky.dev/pricing?extId=${chrome.runtime.id}` });
       this.dismissSettingsSheet();
     });
 
@@ -326,7 +326,7 @@ class BrowserskyPanel {
     const extId = chrome.runtime.id;
     document.getElementById('signInBtn').addEventListener('click', () => {
       const sourceTabId = this.tabId ?? '';
-      chrome.tabs.create({ url: `https://browsersky-ai.vercel.app/auth-bridge?extId=${extId}&mode=sign-in&sourceTabId=${sourceTabId}` });
+      chrome.tabs.create({ url: `https://browsersky.dev/auth-bridge?extId=${extId}&mode=sign-in&sourceTabId=${sourceTabId}` });
     });
     // Listen for token arriving from service worker after sign-in
     chrome.runtime.onMessage.addListener((message) => {
@@ -962,7 +962,7 @@ class BrowserskyPanel {
     this.errorBanner.style.display = 'flex';
     document.getElementById('reSignInLink')?.addEventListener('click', () => {
       const sourceTabId = this.tabId ?? '';
-      chrome.tabs.create({ url: `https://browsersky-ai.vercel.app/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in&sourceTabId=${sourceTabId}` });
+      chrome.tabs.create({ url: `https://browsersky.dev/auth-bridge?extId=${chrome.runtime.id}&mode=sign-in&sourceTabId=${sourceTabId}` });
     });
   }
 
