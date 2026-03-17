@@ -303,7 +303,7 @@ function refreshToken() {
     chrome.storage.onChanged.addListener(onStorageChanged);
 
     chrome.tabs.create({
-      url: `https://browsersky-ai.vercel.app/auth-bridge?extId=${chrome.runtime.id}&mode=refresh`,
+      url: `https://browsersky.dev/auth-bridge?extId=${chrome.runtime.id}&mode=refresh`,
       active: false
     }).then(tab => {
       tabId = tab.id;

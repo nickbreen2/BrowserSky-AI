@@ -46,7 +46,7 @@
     }
   ],
   "externally_connectable": {
-    "matches": ["https://browsersky-ai.vercel.app/*"]
+    "matches": ["https://browsersky.dev/*"]
   },
   "icons": {
     "16": "icons/Logo (1).png",
