@@ -121,7 +121,28 @@ body {
   outline: none !important;
 }
 
-/* "Secured by Clerk" footer */
+/* Match footer sections to card background — removes shade mismatch */
+.cl-footer,
+.cl-footerAction,
+.cl-footerPages {
+  background: #192431 !important;
+  background-color: #192431 !important;
+}
+
+/* Remove divider line between form and footer */
+.cl-footerAction {
+  border-top: none !important;
+  padding-top: 4px !important;
+  padding-bottom: 16px !important;
+  margin-top: 0 !important;
+}
+
+/* Tighten gap at bottom of form area */
+.cl-main {
+  padding-bottom: 4px !important;
+}
+
+/* "Secured by Clerk" text color */
 .cl-footer,
 .cl-footer * {
   color: rgba(241, 245, 249, 0.55) !important;
