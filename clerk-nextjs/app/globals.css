@@ -145,12 +145,10 @@ body {
   .cl-rootBox,
   .cl-cardBox {
     max-width: 100% !important;
+    border-radius: 16px !important;
   }
   .cl-card {
-    width: 100% !important;
-    max-width: 100% !important;
     padding: 24px 20px !important;
-    border-radius: 16px !important;
   }
   .cl-headerTitle {
     font-size: 18px !important;
@@ -162,12 +160,10 @@ body {
   .cl-rootBox,
   .cl-cardBox {
     max-width: calc(100vw - 32px) !important;
+    border-radius: 14px !important;
   }
   .cl-card {
-    width: 100% !important;
-    max-width: 100% !important;
     padding: 20px 16px !important;
-    border-radius: 14px !important;
   }
   .cl-headerTitle {
     font-size: 17px !important;

@@ -58,13 +58,21 @@ export default function SignInPage() {
               logoBox: {
                 display: 'none',
               },
-              card: {
+              cardBox: {
                 background: '#111d2b',
                 border: '1px solid rgba(255,255,255,0.16)',
                 boxShadow: '0 4px 40px rgba(0,0,0,0.5)',
-                padding: '32px',
+                borderRadius: '14px',
                 width: '100%',
                 maxWidth: '400px',
+                overflow: 'hidden',
+              },
+              card: {
+                background: 'transparent',
+                border: 'none',
+                boxShadow: 'none',
+                padding: '32px',
+                width: '100%',
               },
               headerTitle: {
                 color: '#f1f5f9',
