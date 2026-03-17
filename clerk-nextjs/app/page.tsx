@@ -20,11 +20,8 @@ export default function Home() {
               text: "Get Extension",
               href: "https://chromewebstore.google.com",
             }}
-            mockupImage={{
-              src: "https://images.unsplash.com/photo-1593642632559-0c6d3fc62b89?w=1248&h=765&fit=crop",
-              alt: "BrowserSky AI Extension Interface",
-              width: 1248,
-              height: 765,
+            mockupVideo={{
+              src: "/icons/Browsersky-(demo)-(1).mp4",
             }}
           />
           <div id="faq">

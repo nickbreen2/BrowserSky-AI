@@ -13,11 +13,8 @@ interface HeroWithMockupProps {
     text: string;
     href: string;
   };
-mockupImage: {
+  mockupVideo: {
     src: string;
-    alt: string;
-    width: number;
-    height: number;
   };
   className?: string;
 }
@@ -30,7 +27,7 @@ export function HeroWithMockup({
     text: "Get Started",
     href: "/sign-up",
   },
-  mockupImage,
+  mockupVideo,
   className,
 }: HeroWithMockupProps) {
   return (
@@ -100,11 +97,13 @@ export function HeroWithMockup({
                 "border-blue-500/10",
               )}
             >
-              <img
-                {...mockupImage}
+              <video
+                src={mockupVideo.src}
                 className="w-full h-auto"
-                loading="lazy"
-                decoding="async"
+                autoPlay
+                muted
+                loop
+                playsInline
               />
             </Mockup>
           </div>

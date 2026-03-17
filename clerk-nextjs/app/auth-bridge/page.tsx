@@ -211,7 +211,9 @@ function AuthBridge() {
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
               Need assistance?{' '}
               <a
-                href="mailto:support@browsersky.ai"
+                href="https://browsersky.dev/support"
+                target="_blank"
+                rel="noopener noreferrer"
                 style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none' }}
               >
                 Feel free to reach out!

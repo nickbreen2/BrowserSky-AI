@@ -8,7 +8,7 @@ const mockupVariants = cva(
     variants: {
       type: {
         mobile: "rounded-[48px] max-w-[350px]",
-        responsive: "rounded-md",
+        responsive: "rounded-[15px]",
       },
     },
     defaultVariants: {
