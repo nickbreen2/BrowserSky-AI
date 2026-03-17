@@ -102,3 +102,15 @@ body {
     0 0 12px rgba(56, 156, 255, 0.4),
     0 0 24px rgba(0, 123, 195, 0.2);
 }
+
+/* Clerk auth form overrides */
+.cl-formFieldInput::placeholder {
+  color: rgba(241, 245, 249, 0.45) !important;
+}
+
+/* "Secured by Clerk" footer */
+.cl-footer,
+.cl-footer * {
+  color: rgba(241, 245, 249, 0.55) !important;
+  opacity: 1 !important;
+}
