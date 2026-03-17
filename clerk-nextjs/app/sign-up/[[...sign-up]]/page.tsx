@@ -44,7 +44,7 @@ export default function SignUpPage() {
           appearance={{
             variables: {
               colorPrimary: '#3b82f6',
-              colorBackground: '#111d2b',
+              colorBackground: '#192431',
               colorInputBackground: '#192636',
               colorInputText: '#f1f5f9',
               colorText: '#f1f5f9',
@@ -59,7 +59,7 @@ export default function SignUpPage() {
                 display: 'none',
               },
               cardBox: {
-                background: '#111d2b',
+                background: '#192431',
                 border: '1px solid rgba(255,255,255,0.16)',
                 boxShadow: '0 4px 40px rgba(0,0,0,0.5)',
                 borderRadius: '14px',
