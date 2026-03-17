@@ -101,7 +101,7 @@ export default function SignInPage() {
               },
               formFieldInput: {
                 backgroundColor: '#192636',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid transparent',
                 borderRadius: '10px',
                 color: '#f1f5f9',
                 height: '44px',
