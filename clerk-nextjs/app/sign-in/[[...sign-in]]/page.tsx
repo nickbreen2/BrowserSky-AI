@@ -24,7 +24,7 @@ export default function SignInPage() {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '60px 16px 40px',
+        padding: 'clamp(32px, 6vw, 60px) 16px 40px',
         position: 'relative',
         zIndex: 1,
         gap: '24px',
@@ -63,7 +63,8 @@ export default function SignInPage() {
                 border: '1px solid rgba(255,255,255,0.16)',
                 boxShadow: '0 0 0 1px rgba(59,130,246,0.12), 0 4px 40px rgba(0,0,0,0.5)',
                 padding: '32px',
-                width: '400px',
+                width: '100%',
+                maxWidth: '400px',
               },
               headerTitle: {
                 color: '#f1f5f9',
@@ -120,9 +121,7 @@ export default function SignInPage() {
                 color: 'rgba(241,245,249,0.75)',
               },
               footerAction: {
-                borderTop: '1px solid rgba(255,255,255,0.06)',
-                paddingTop: '16px',
-                marginTop: '8px',
+                paddingTop: '8px',
               },
               identityPreviewText: {
                 color: '#f1f5f9',

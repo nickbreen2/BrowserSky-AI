@@ -103,9 +103,22 @@ body {
     0 0 24px rgba(0, 123, 195, 0.2);
 }
 
-/* Clerk auth form overrides */
+/* ── Clerk auth form overrides ───────────── */
+
+/* Placeholder text */
 .cl-formFieldInput::placeholder {
   color: rgba(241, 245, 249, 0.45) !important;
+}
+
+/* Remove input resting border — background color provides visual separation */
+.cl-formFieldInput {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.cl-formFieldInput:focus {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+  outline: none !important;
 }
 
 /* "Secured by Clerk" footer */
@@ -113,4 +126,36 @@ body {
 .cl-footer * {
   color: rgba(241, 245, 249, 0.55) !important;
   opacity: 1 !important;
+}
+
+/* ── Responsive: Tablet (iPad ≤ 768px) ───── */
+@media (max-width: 768px) {
+  .cl-rootBox {
+    width: 100% !important;
+  }
+  .cl-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 24px 20px !important;
+    border-radius: 16px !important;
+  }
+  .cl-headerTitle {
+    font-size: 18px !important;
+  }
+}
+
+/* ── Responsive: Mobile (≤ 480px) ────────── */
+@media (max-width: 480px) {
+  .cl-card {
+    padding: 20px 16px !important;
+    border-radius: 14px !important;
+  }
+  .cl-headerTitle {
+    font-size: 17px !important;
+  }
+  .cl-formButtonPrimary,
+  .cl-socialButtonsBlockButton {
+    height: 48px !important;
+    font-size: 15px !important;
+  }
 }
