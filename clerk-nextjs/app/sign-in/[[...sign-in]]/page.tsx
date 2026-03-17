@@ -48,7 +48,7 @@ export default function SignInPage() {
               colorInputBackground: '#192636',
               colorInputText: '#f1f5f9',
               colorText: '#f1f5f9',
-              colorTextSecondary: 'rgba(241,245,249,0.65)',
+              colorTextSecondary: 'rgba(241,245,249,0.75)',
               colorNeutral: '#f1f5f9',
               borderRadius: '14px',
               fontFamily: 'var(--font-geist-sans), system-ui, sans-serif',
@@ -61,7 +61,7 @@ export default function SignInPage() {
               card: {
                 background: '#111d2b',
                 border: '1px solid rgba(255,255,255,0.16)',
-                boxShadow: '0 0 0 1px rgba(59,130,246,0.12), 0 20px 60px rgba(0,0,0,0.6)',
+                boxShadow: '0 0 0 1px rgba(59,130,246,0.12), 0 4px 40px rgba(0,0,0,0.5)',
                 padding: '32px',
                 width: '400px',
               },
@@ -115,6 +115,9 @@ export default function SignInPage() {
               },
               footerActionLink: {
                 color: '#60a5fa',
+              },
+              footerActionText: {
+                color: 'rgba(241,245,249,0.75)',
               },
               footerAction: {
                 borderTop: '1px solid rgba(255,255,255,0.06)',
