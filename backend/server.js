@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyToken } from '@clerk/backend';
+import rateLimit from 'express-rate-limit';
 
 // Load environment variables
 dotenv.config();
@@ -48,15 +49,39 @@ app.use(cors({
     // Allow requests with no origin (e.g. Chrome extension service workers)
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    // Allow any chrome-extension:// origin in development
-    if (process.env.NODE_ENV !== 'production' && origin.startsWith('chrome-extension://')) {
+    // Allow specific extension ID only (set EXTENSION_ID env var)
+    const allowedExtId = process.env.EXTENSION_ID;
+    if (allowedExtId && origin === `chrome-extension://${allowedExtId}`) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+
+// Rate limiters — applied per route
+const classifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down.' }
+});
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down.' }
+});
+const visionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down.' }
+});
 
 // Clerk auth middleware — verifies the JWT token on protected routes
 async function requireAuth(req, res, next) {
@@ -146,11 +171,15 @@ Keep steps short and action-oriented (under 10 words each). Return 2-4 steps max
  * POST /api/classify
  * Classifies whether a request needs a plan or a direct answer
  */
-app.post('/api/classify', requireAuth, async (req, res) => {
+app.post('/api/classify', classifyLimiter, requireAuth, async (req, res) => {
   const { question, pageContext } = req.body;
 
   if (!question || !pageContext) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  if (typeof question !== 'string' || question.length > 2000) {
+    return res.status(400).json({ error: 'question must be a string under 2000 characters' });
   }
 
   const modelToUse = 'gpt-4o-mini'; // Always use fast model for classification
@@ -187,7 +216,15 @@ app.post('/api/classify', requireAuth, async (req, res) => {
  * POST /api/chat
  * Handles chat requests from the extension
  */
-app.post('/api/chat', requireAuth, async (req, res) => {
+// Allowed model identifiers
+const ALLOWED_MODELS = new Set([
+  'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
+  'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
+  'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229',
+  'MiniMax-Text-01', 'grok-2-latest', 'grok-beta'
+]);
+
+app.post('/api/chat', chatLimiter, requireAuth, async (req, res) => {
   console.log('=== Incoming request ===');
   console.log('Question:', req.body.question);
   console.log('Model:', req.body.model || 'gpt-4o-mini');
@@ -213,6 +250,19 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       return res.status(400).json({
         error: 'Invalid pageContext: must include title, url, and text'
       });
+    }
+
+    if (typeof question !== 'string' || question.length > 2000) {
+      return res.status(400).json({ error: 'question must be a string under 2000 characters' });
+    }
+    if (typeof pageContext.text !== 'string' || pageContext.text.length > 100000) {
+      return res.status(400).json({ error: 'pageContext.text must be under 100,000 characters' });
+    }
+    if (Array.isArray(history) && history.length > 20) {
+      return res.status(400).json({ error: 'history must contain 20 or fewer messages' });
+    }
+    if (model && !ALLOWED_MODELS.has(model)) {
+      return res.status(400).json({ error: 'Unsupported model' });
     }
 
     console.log('✅ Validation passed');
@@ -390,7 +440,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
  * POST /api/chat/vision
  * Handles vision requests — sends a screenshot to GPT-4o instead of text
  */
-app.post('/api/chat/vision', requireAuth, async (req, res) => {
+app.post('/api/chat/vision', visionLimiter, requireAuth, async (req, res) => {
   console.log('=== Incoming vision request ===');
   console.log('Question:', req.body.question);
   console.log('Has screenshot:', !!req.body.screenshot);
@@ -403,6 +453,16 @@ app.post('/api/chat/vision', requireAuth, async (req, res) => {
       return res.status(400).json({
         error: 'Missing required fields: question and screenshot are required'
       });
+    }
+
+    if (typeof question !== 'string' || question.length > 2000) {
+      return res.status(400).json({ error: 'question must be a string under 2000 characters' });
+    }
+    if (typeof screenshot !== 'string' || screenshot.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'screenshot too large (max 5MB)' });
+    }
+    if (model && !ALLOWED_MODELS.has(model)) {
+      return res.status(400).json({ error: 'Unsupported model' });
     }
 
     const modelToUse = model || process.env.DEFAULT_MODEL || 'gpt-4o';

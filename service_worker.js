@@ -576,9 +576,21 @@ async function handleAskBrowsersky(message) {
   }
 }
 
-// Listen for messages sent from auth-bridge and settings pages on localhost:3000
+// Listen for messages sent from auth-bridge and settings pages on browsersky.dev
 chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  // Explicit origin check — only accept messages from browsersky.dev
+  const senderOrigin = _sender.url ? new URL(_sender.url).origin : null;
+  if (senderOrigin !== 'https://browsersky.dev') {
+    sendResponse({ error: 'Unauthorized sender' });
+    return true;
+  }
+
   if (message.type === 'CLERK_TOKEN' && message.token) {
+    // Validate token is a plausible JWT (3 dot-separated parts)
+    if (typeof message.token !== 'string' || message.token.split('.').length !== 3) {
+      sendResponse({ error: 'Invalid token format' });
+      return true;
+    }
     chrome.storage.local.set({ clerkToken: message.token, clerkUser: message.user || {} }, () => {
       chrome.runtime.sendMessage({ type: 'CLERK_TOKEN_RECEIVED' }).catch(() => {});
       sendResponse({ ok: true });
