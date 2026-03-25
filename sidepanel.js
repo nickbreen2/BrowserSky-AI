@@ -195,10 +195,23 @@ class BrowserskyPanel {
     const initial = (firstName[0] || email[0] || '?').toUpperCase();
     const color = getAvatarColor(firstName || email);
     avatarEl.style.background = color;
+    avatarEl.innerHTML = '';
     if (imageUrl) {
-      avatarEl.innerHTML = `<img src="${imageUrl}" alt="Profile" onerror="this.parentElement.style.background='${color}';this.parentElement.innerHTML='<span>${initial}</span>'">`;
+      const img = document.createElement('img');
+      img.src = imageUrl;
+      img.alt = 'Profile';
+      img.addEventListener('error', () => {
+        avatarEl.style.background = color;
+        avatarEl.innerHTML = '';
+        const span = document.createElement('span');
+        span.textContent = initial;
+        avatarEl.appendChild(span);
+      });
+      avatarEl.appendChild(img);
     } else {
-      avatarEl.innerHTML = `<span>${initial}</span>`;
+      const span = document.createElement('span');
+      span.textContent = initial;
+      avatarEl.appendChild(span);
     }
   }
 
@@ -224,19 +237,35 @@ class BrowserskyPanel {
     backdrop.addEventListener('click', () => this.dismissSettingsSheet());
     document.body.appendChild(backdrop);
 
-    const avatarHtml = imageUrl
-      ? `<div class="settings-avatar-lg" style="background:${color}"><img src="${imageUrl}" alt="Profile" onerror="this.parentElement.innerHTML='<span>${initial}</span>'"></div>`
-      : `<div class="settings-avatar-lg" style="background:${color}"><span>${initial}</span></div>`;
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'settings-avatar-lg';
+    avatarDiv.style.background = color;
+    if (imageUrl) {
+      const img = document.createElement('img');
+      img.src = imageUrl;
+      img.alt = 'Profile';
+      img.addEventListener('error', () => {
+        avatarDiv.innerHTML = '';
+        const span = document.createElement('span');
+        span.textContent = initial;
+        avatarDiv.appendChild(span);
+      });
+      avatarDiv.appendChild(img);
+    } else {
+      const span = document.createElement('span');
+      span.textContent = initial;
+      avatarDiv.appendChild(span);
+    }
 
     const sheet = document.createElement('div');
     sheet.id = 'settingsSheet';
     sheet.className = 'settings-sheet';
     sheet.innerHTML = `
-      <div class="settings-email-line">${email}</div>
+      <div class="settings-email-line" id="settingsEmailLine"></div>
       <div class="settings-user-card">
-        ${avatarHtml}
+        <div id="settingsAvatarSlot"></div>
         <div class="settings-user-info">
-          <div class="settings-user-name">${fullName}</div>
+          <div class="settings-user-name" id="settingsUserName"></div>
           <div class="settings-plan-inline">Free</div>
         </div>
       </div>
@@ -275,6 +304,11 @@ class BrowserskyPanel {
       </div>`;
 
     document.body.appendChild(sheet);
+
+    // Fill in user data safely using textContent/DOM (never innerHTML)
+    sheet.querySelector('#settingsEmailLine').textContent = email;
+    sheet.querySelector('#settingsUserName').textContent = fullName;
+    sheet.querySelector('#settingsAvatarSlot').replaceWith(avatarDiv);
 
     getCreditState().then(({ balance, resetAt, userTier }) => {
       const el = document.getElementById('settingsCreditsValue');
@@ -638,7 +672,8 @@ class BrowserskyPanel {
     // Sites section
     const sites = document.createElement('div');
     sites.className = 'plan-card-sites';
-    sites.innerHTML = `<div class="plan-card-sites-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>Allow actions on these sites</div><div class="plan-card-domain">${plan.domain}</div>`;
+    sites.innerHTML = `<div class="plan-card-sites-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>Allow actions on these sites</div><div class="plan-card-domain"></div>`;
+    sites.querySelector('.plan-card-domain').textContent = plan.domain;
 
     // Steps list
     const steps = document.createElement('ol');

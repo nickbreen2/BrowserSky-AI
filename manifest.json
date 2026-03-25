@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Browsersky AI",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A browser-based AI assistant that analyzes web pages and answers questions using page context",
   "permissions": [
     "sidePanel",
@@ -45,6 +45,9 @@
       "run_at": "document_idle"
     }
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src https://browsersky-ai.onrender.com https://browsersky.dev https://api.clerk.com https://clerk.browsersky.dev; object-src 'none'; base-uri 'self';"
+  },
   "externally_connectable": {
     "matches": ["https://browsersky.dev/*"]
   },
